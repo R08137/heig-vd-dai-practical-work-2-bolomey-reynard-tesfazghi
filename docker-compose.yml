@@ -1,0 +1,15 @@
+services:
+  server:
+    build: .
+    container_name: tcp-server
+    command: ["server", "-p", "6433"]   #serveur
+    ports:
+      - "6433:6433"
+    restart: unless-stopped
+
+  client:
+    build: .
+    container_name: tcp-client
+    depends_on:
+      - server
+    command: ["client", "-H", "server", "-p", "6433"] #client
