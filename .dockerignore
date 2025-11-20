@@ -1,0 +1,33 @@
+# Maven output
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# Maven local repo (never send this to Docker)
+.m2/
+
+# Logs
+*.log
+
+# IntelliJ IDEA
+.idea/
+*.iml
+out/
+
+# VS Code
+.vscode/
+
+# Eclipse
+.project
+.classpath
+.settings/
+
+# MacOS
+.DS_Store
+
+# Git
+.git
+.gitignore
+
+# Build tools
+*.swp
+*~
