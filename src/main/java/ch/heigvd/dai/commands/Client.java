@@ -33,7 +33,6 @@ public class Client implements Callable<Integer> {
 
   @Override
   public Integer call() {
-      System.out.println("Connecting to " + host + ":" + port);
 
       try (Socket socket = new Socket(host, port);
            Reader reader = new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8);
@@ -62,10 +61,11 @@ public class Client implements Callable<Integer> {
                       case NAME -> {
                           String name = userInputParts[1];
 
-                          request = ClientCommand.NAME + " " + name;
+                          request = ClientCommand.NAME + " " + name + END_OF_LINE;
                       }
-                      case WITHOUT_NAME ->
-                          request = ClientCommand.NAME.name();
+                      case WITHOUT_NAME -> {
+                          request = ClientCommand.NAME +" NONAME" + END_OF_LINE;
+                      }
 
                       case PLAY -> {
                           int number = Integer.parseInt(userInputParts[1]);
@@ -79,7 +79,10 @@ public class Client implements Callable<Integer> {
                           socket.close();
                           continue;
                       }
-                      case HELP -> help();
+                      case HELP -> {
+                          help();
+                          continue;
+                      }
                   }
 
                   if (request != null) {
@@ -98,10 +101,42 @@ public class Client implements Callable<Integer> {
                   continue;
               }
 
+
               String[] serverResponseParts = serverResponse.split(" ", 2);
 
+              Server.Message message = null;
+              try {
+                  message = Server.Message.valueOf(serverResponseParts[0]);
+              } catch (IllegalArgumentException e) {
+                  // Do nothing
+              }
 
+              switch (message) {
+                  case PLAYERNAME -> {
+                      String playerName = serverResponseParts[1];
+                      System.out.println("Welcome " + playerName + "\n enjoy your game");
+
+                  }
+                  case PLAYERNONAME -> {
+                      String playerName = serverResponseParts[1];
+                      System.out.println("Welcome " + playerName + "\n enjoy your game");
+                  }
+                  case CORRECT -> System.out.println("Congratulations! You guessed the number.");
+                  case OK -> System.out.println("Game restarted.");
+                  case ERROR -> {
+                      if (serverResponseParts.length < 2) {
+                          System.out.println("Invalid message. Please try again.");
+                          break;
+                      }
+
+                      String error = serverResponseParts[1];
+                      System.out.println("Error " + error);
+                  }
+                  case null, default ->
+                          System.out.println("Invalid/unknown command sent by server, ignore.");
+              }
           }
+
 
           System.out.println("[Client] Closing connection and quitting...");
       } catch (Exception e) {
