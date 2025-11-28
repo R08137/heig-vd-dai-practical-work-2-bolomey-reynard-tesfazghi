@@ -1,0 +1,40 @@
+package ch.heigvd.dai.game;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+
+public class Player {
+    private int id;
+    private DeckOfCards deckOfCards;
+
+    public Player (int id, int ... nbCards) {
+        this.id = id;
+        this.deckOfCards = new DeckOfCards(nbCards);
+    }
+
+    public int getId(){
+        return this.id;
+    }
+
+    public ArrayList<Card> getCards(){
+        return deckOfCards.getCards();
+    }
+
+    @Override
+    public String toString(){
+        StringBuilder sb = new StringBuilder();
+        sb.append("Player " + id + " :\n");
+        sb.append(deckOfCards.toString());
+        return sb.toString();
+    }
+
+    public Card playLowestCard() {
+        return deckOfCards.playFirstCard();
+    }
+
+    public boolean hasCards() {
+        return !deckOfCards.isEmpty();
+    }
+
+}
+
