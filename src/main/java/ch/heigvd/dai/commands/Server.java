@@ -1,157 +1,221 @@
 package ch.heigvd.dai.commands;
 
 import java.io.*;
+import java.util.List;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
-import java.util.Random;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import picocli.CommandLine;
 
 @CommandLine.Command(name = "server", description = "Start the server part of the network game.")
 public class Server implements Callable<Integer> {
 
-    public enum Message {
-        PLAYERNAME,
-        PLAYERNONAME,
-        CORRECT,
-        OK,
-        ERROR,
-    }
-
-    // Upper bound for the card number
     private static final int UPPER_BOUND = 100;
-
-    // Lower bound for the card number
     private static final int LOWER_BOUND = 0;
 
-    // The highest number to played
-    private int lastCardNumber;
+    private static final int MAX_PLAYERS = 10;
+    private static final List<PlayerSession> players = new CopyOnWriteArrayList<>();
+    private final AtomicInteger PlayerId = new AtomicInteger(1);
 
+    private static class PlayerSession {
+        final int id;
+        final Socket socket;
+        String name;
+        boolean ready;
+
+        PlayerSession(int id, Socket socket, String name) {
+            this.id = id;
+            this.socket = socket;
+            this.name = name;
+            this.ready = false;
+        }
+    }
 
     public static String END_OF_LINE = "\n";
 
-  @CommandLine.Option(
-      names = {"-p", "--port"},
-      description = "Port to use (default: ${DEFAULT-VALUE}).",
-      defaultValue = "6433")
-  protected int port;
+    private static final int THREAD_POOL_SIZE = 10;
+    private final ExecutorService executor = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
 
-  @Override
-  public Integer call() {
-      System.out.println("Starting server...");
+    @CommandLine.Option(
+            names = {"-p", "--port"},
+            description = "Port to use (default: ${DEFAULT-VALUE}).",
+            defaultValue = "6433")
+    protected int port;
 
-      try (ServerSocket serverSocket = new ServerSocket(port)) {
-          System.out.println("[SERVER] Listening on port " + port);
+    @Override
+    public Integer call() {
+        System.out.println("Starting server...");
 
-          while (!serverSocket.isClosed()) {
-              try (Socket socket = serverSocket.accept();
-                   Reader reader = new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8);
-                   BufferedReader in = new BufferedReader(reader);
-                   Writer writer =
-                           new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8);
-                   BufferedWriter out = new BufferedWriter(writer)) {
+        try (ServerSocket serverSocket = new ServerSocket(port)) {
+            System.out.println("[SERVER] Listening on port " + port);
 
-                  System.out.println(
-                          "[Server] New client connected from "
-                                  + socket.getInetAddress().getHostAddress()
-                                  + ":"
-                                  + socket.getPort());
+            while (!serverSocket.isClosed()) {
+                try {
+                    Socket socket = serverSocket.accept();
+                    executor.submit(() -> ClientHandler(socket));
+                } catch (IOException e) {
+                    System.out.println("[Server] IO exception on accept: " + e);
+                    break;
+                }
+            }
+        } catch (IOException e) {
+            System.out.println("[Server] IO exception: " + e);
+            return 1;
+        } finally {
+            executor.shutdown();
+        }
+
+        return 0;
+    }
+
+    private void ClientHandler(Socket socket) {
+        PlayerSession session = null;
+        try (socket;
+             Reader reader = new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8);
+             BufferedReader in = new BufferedReader(reader);
+             Writer writer = new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8);
+             BufferedWriter out = new BufferedWriter(writer)) {
+
+            System.out.println(
+                    "[Server] New client connected from "
+                            + socket.getInetAddress().getHostAddress()
+                            + ":"
+                            + socket.getPort());
+
+            // Check capacity
+            if (players.size() >= MAX_PLAYERS) {
+                sendLine(out, ServerCommand.ERROR_FATAL + " lobby_full");
+                return;
+            }
+
+            // Create a temporary session with a random default name
+            int id = PlayerId.getAndIncrement();
+            String defaultName = "Player" + id;
+            session = new PlayerSession(id, socket, defaultName);
+            players.add(session);
+
+            // Tell the client they are connected but not named yet
+            sendLine(out, ServerCommand.PLACEHOLDER + " connected " + defaultName);
+            broadcastLobbyStatus();
+
+            String line;
+            while ((line = in.readLine()) != null) {
+
+                line = line.trim();
+                if (line.isEmpty()) {
+                    continue;
+                }
+
+                String[] parts = line.split("\\s+", 2);
+                String keyword = parts[0].toUpperCase();
+                ClientCommand command = null;
+                try {
+                    command = ClientCommand.valueOf(keyword);
+                } catch (IllegalArgumentException e) {
+                    // Unknown command
+                    sendLine(out, ServerCommand.WARNING_COMMAND_INVALID + " unknown_command");
+                    continue;
+                }
+                String arg = (parts.length > 1) ? parts[1] : null;
+
+                switch (command) {
+                    case NAME -> {
+                        // NAME <name> or NAME (no arg -> random nickname)
+                        String newName;
+                        if (arg == null || arg.isBlank()) {
+                            newName = "Player" + id; // or something fancier/random
+                        } else {
+                            newName = arg.trim();
+                        }
+                        session.name = newName;
+                        sendLine(out, ServerCommand.NAME_VALIDATED + " name_set " + newName);
+                        broadcastLobbyStatus();
+                    }
+
+                    case QUIT -> {
+                        sendLine(out, ServerCommand.PLACEHOLDER + " bye");
+                        System.out.println("[Server] Client " + session.name + " requested quit");
+                        return; // will jump to finally and clean up
+                    }
+
+                    case READY -> {
+                        // will be implemented in next step
+                        sendLine(out, ServerCommand.PLACEHOLDER + " TODO_READY");
+                    }
+
+                    case UNREADY -> {
+                        // will be implemented in next step
+                        sendLine(out, ServerCommand.PLACEHOLDER + " TODO_UNREADY");
+                    }
+
+                    case PLAY -> {
+                        // will be implemented later
+                        sendLine(out, ServerCommand.WARNING_COMMAND_INVALID + " play_not_implemented_yet");
+                    }
+
+                    case NEXT_ROUND -> {
+                        // later
+                        sendLine(out, ServerCommand.WARNING_COMMAND_INVALID + " next_round_not_implemented_yet");
+                    }
+                }
+            }
+
+            System.out.println("[Server] Client disconnected: " + (session != null ? session.name : "unknown"));
+        } catch (IOException e) {
+            System.out.println("[Server] IO exception in client handler: " + e);
+        } finally {
+            if (session != null) {
+                players.remove(session);
+                System.out.println("[Server] Removed player " + session.name);
+                broadcastLobbyStatus();
+            }
+        }
+    }
+
+    private void sendLine(BufferedWriter out, String line) throws IOException {
+        out.write(line);
+        out.write(END_OF_LINE);
+        out.flush();
+    }
+
+    private void sendLine(BufferedWriter out, ServerCommand msg) throws IOException {
+        sendLine(out, msg.toString());
+    }
+
+    private void broadcastLobbyStatus() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(ServerCommand.LOBBY_STATUS).append(' ');
+        sb.append(players.size()).append(" players online.\n");
+
+        for (PlayerSession p : players) {
+            sb.append("      ");
+            sb.append(p.id).append(':')
+                    .append(p.name).append(" : ")
+                    .append(p.ready ? "ready\n" : "not_ready\n");
+        }
+
+        String msg = sb.toString();
+
+        // Send to all players
+        for (PlayerSession p : players) {
+            try {
+                BufferedWriter out = new BufferedWriter(
+                        new OutputStreamWriter(p.socket.getOutputStream(), StandardCharsets.UTF_8));
+                out.write(msg);
+                out.write(END_OF_LINE);
+                out.flush();
+            } catch (IOException e) {
+                System.out.println("[Server] Failed to send lobby status to " + p.name + ": " + e);
+            }
+        }
+
+        System.out.println("[Server] Broadcast lobby status: " + msg);
+    }
 
 
-                  // Set game in progress
-                  boolean gameInProgress = true;
-
-
-                  while (!socket.isClosed()) {
-                      String clientRequest = in.readLine();
-
-                      if (clientRequest == null) {
-                          socket.close();
-                          continue;
-                      }
-
-                      String[] clientRequestParts = clientRequest.split(" ", 2);
-
-                      Client.ClientCommand message = null;
-                      try {
-                          message = Client.ClientCommand.valueOf(clientRequestParts[0]);
-                      } catch (Exception e) {
-                          // Do nothing
-                      }
-
-                      String response;
-
-                      switch (message) {
-                          case NAME -> {
-                              String name = clientRequestParts[1];
-                              response = Message.PLAYERNAME + " " + name +END_OF_LINE;
-                          }
-                          case WITHOUT_NAME -> {
-                              String name = "player23";
-                              response = Message.PLAYERNONAME + " " + name +END_OF_LINE;
-                          }
-                          case PLAY -> {
-                              if (clientRequestParts.length < 2) {
-                                  response = Message.ERROR + " 2: the guess is not a number" + END_OF_LINE;
-                                  break;
-                              }
-
-                              try {
-                                  int number = Integer.parseInt(clientRequestParts[1]);
-
-                                  if (number < LOWER_BOUND || number > UPPER_BOUND) {
-                                      response =
-                                              Message.ERROR + " 1: the number is not between the bounds" + END_OF_LINE;
-                                  } else if (number  > lastCardNumber) {
-                                      lastCardNumber = number;
-                                      response = Message.CORRECT + END_OF_LINE;
-                                  } else {
-                                      response = Message.ERROR + " 0: generic error" + END_OF_LINE;
-
-                                      // Set game in progress
-                                      gameInProgress = false;
-                                  }
-                              } catch (NumberFormatException e) {
-                                  response = Message.ERROR + " 2: the guess is not a number" + END_OF_LINE;
-                              }
-                          }
-                          case RESTART -> {
-                              if (gameInProgress) {
-                                  response =
-                                          Message.ERROR + " 1: The game is already in session" + END_OF_LINE;
-                              } else {
-
-                                  System.out.println("[Server] The game will restart" );
-
-                                  lastCardNumber = LOWER_BOUND;
-                                  gameInProgress = true;
-                                  response = Message.OK + END_OF_LINE;
-
-                              }
-                          }
-                          case null, default -> {
-                              response = Message.ERROR + " -1: invalid message" + END_OF_LINE;
-                          }
-                      }
-
-                      System.out.println(response);
-                      out.write(response);
-                      out.flush();
-                  }
-
-                  System.out.println("[Server] Closing connection");
-              } catch (IOException e) {
-                  System.out.println("[Server] IO exception: " + e);
-                  return 1;
-              }
-          }
-      } catch (IOException e) {
-          System.out.println("[Server] IO exception: " + e);
-          return 1;
-      }
-
-
-      return 0;
-  }
 }
