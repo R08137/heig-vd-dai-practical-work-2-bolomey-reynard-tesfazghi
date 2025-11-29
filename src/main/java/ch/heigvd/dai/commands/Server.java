@@ -10,6 +10,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
+import ch.heigvd.dai.game.Game;
 import picocli.CommandLine;
 
 @CommandLine.Command(name = "server", description = "Start the server part of the network game.")
@@ -21,21 +22,26 @@ public class Server implements Callable<Integer> {
     private static final List<PlayerSession> players = new CopyOnWriteArrayList<>();
     private final AtomicInteger playerId = new AtomicInteger(1);
     private static boolean gameStarted = false;
+    Game theMind = null;
 
     // per-player connection/session to identify them for game instance
     private static class PlayerSession {
         final int id;
-        final Socket socket;
+        final Socket commandSocket;      // main command connection
+        Socket broadcastSocket;          // second socket for broadcasts
+
         String name;
         boolean ready;
 
-        PlayerSession(int id, Socket socket, String name) {
+        PlayerSession(int id, Socket commandSocket, String name) {
             this.id = id;
-            this.socket = socket;
+            this.commandSocket = commandSocket;
             this.name = name;
             this.ready = false;
+            this.broadcastSocket = null; // will be attached later
         }
     }
+
 
     public static String END_OF_LINE = "\n";
 
@@ -60,12 +66,12 @@ public class Server implements Callable<Integer> {
                     Socket socket = serverSocket.accept();
                     executor.submit(() -> ClientHandler(socket));
                 } catch (IOException e) {
-                    System.out.println("[Server] IO exception on accept: " + e);
+                    System.out.println("[SERVER] IO exception on accept: " + e);
                     break;
                 }
             }
         } catch (IOException e) {
-            System.out.println("[Server] IO exception: " + e);
+            System.out.println("[SERVER] IO exception: " + e);
             return 1;
         } finally {
             executor.shutdown();
@@ -83,7 +89,7 @@ public class Server implements Callable<Integer> {
              BufferedWriter out = new BufferedWriter(writer)) {
 
             System.out.println(
-                    "[Server] New client connected from "
+                    "[SERVER] New client connected from "
                             + socket.getInetAddress().getHostAddress()
                             + ":"
                             + socket.getPort());
@@ -91,6 +97,7 @@ public class Server implements Callable<Integer> {
             // capacity check
             if (players.size() >= MAX_PLAYERS) {
                 sendLine(out, ServerCommand.ERROR_LOBBY_FULL + " lobby_full");
+                System.out.println("[SERVER] Lobby full. Closing client...");
                 return;
             }
 
@@ -128,7 +135,7 @@ public class Server implements Callable<Integer> {
                 switch (command) {
                     case NAME -> { // "PlayerID" nickname server-side or client set
                         if(session.ready) {
-                            sendLine(out, ServerCommand.WARNING_CANT_NAME_WHEN_READY);
+                            sendLine(out, ServerCommand.WARNING_NAME_WITH_READY);
                             continue;
                         }
                         for (PlayerSession player : players) {
@@ -138,19 +145,22 @@ public class Server implements Callable<Integer> {
                         }
                         session.name = arg;
                         sendLine(out, ServerCommand.NAME_VALIDATED + " " +arg);
+                        System.out.println("[SERVER] Player" + session.id + " registered as " + arg + ".");
                         broadcastLobbyStatus();
                     }
 
                     case READY -> {
                         session.ready = true;
                         sendLine(out, ServerCommand.STATUS_UPDATE_READY + " Readied.");
+                        System.out.println("[SERVER] Player" + session.id + "(" + session.name +") ready.");
                         broadcastLobbyStatus();
-                        tryStartRoundIfReady();
+                        tryGameStartIfReady();
                     }
 
                     case UNREADY -> {
                         session.ready = false;
                         sendLine(out, ServerCommand.STATUS_UPDATE_UNREADY + " Unreadied.");
+                        System.out.println("[SERVER] Player" + session.id + "(" + session.name +") not ready.");
                         broadcastLobbyStatus();
                     }
 
@@ -159,24 +169,28 @@ public class Server implements Callable<Integer> {
                             sendLine(out, ServerCommand.WARNING_GAME_NOT_STARTED);
                             continue;
                         }
-                        if (arg == null || arg.isBlank()) {
-                            sendLine(out, ServerCommand.WARNING_COMMAND_INVALID + " missing_card_value");
-                            continue;
-                        }
-                        int card;
-                        try {
-                            card = Integer.parseInt(arg.trim());
-                        } catch (NumberFormatException e) {
-                            sendLine(out, ServerCommand.WARNING_COMMAND_INVALID + " card_not_a_number");
-                            continue;
-                        }
-
+//                        if (arg == null || arg.isBlank()) {
+//                            sendLine(out, ServerCommand.WARNING_CARD_MISSING_VALUE);
+//                            continue;
+//                       } // Valuable only if we have something other than numbered cards
+//                        int card;
+//                        try {
+//                            card = Integer.parseInt(arg.trim());
+//                        } catch (NumberFormatException e) {
+//                            sendLine(out, ServerCommand.WARNING_CARD_SYNTAX);
+//                            continue;
+//                        }
                         // TODO: validate play against The Mind instance, update game state
                         // - Check cooldown (1.5 s)
                         // - Check if card belongs to this player's hand
                         // - Check misplay (DEFEAT) or progress toward VICTORY
                         // For now, just echo placeholder:
-                        sendLine(out, ServerCommand.PLACEHOLDER + " play_received " + card);
+                        if(theMind.isPlayerDeckEmpty(session.id - 1)) {
+                            sendLine(out, ServerCommand.WARNING_DECK_EMPTY);
+                            continue;
+                        }
+                        sendLine(out, ServerCommand.CARD_PLAYED + " " + theMind.playLowestCardForPlayer(session.id - 1).getValueAsObject());
+                        theMind.validatePlayedSequence();
                     }
 
                     case NEXT_ROUND -> {
@@ -197,16 +211,18 @@ public class Server implements Callable<Integer> {
                     }
                 }
             }
-
-            System.out.println("[Server] Client disconnected: " + (session != null ? session.name : "unknown"));
+            System.out.println("[SERVER] Client disconnected: " + (session != null ? session.name : "unknown"));
         } catch (IOException e) {
-            System.out.println("[Server] IO exception in client handler: " + e);
+            System.out.println("[SERVER] IO exception in client handler: " + e);
+        } catch (Exception e) {
+            System.out.println("[SERVER] Unexpected exception in client handler for player "
+                    + (session != null ? session.id + " (" + session.name + ")" : "unknown") + ": " + e);
+            e.printStackTrace();
         } finally {
             if (session != null) {
                 players.remove(session);
-                System.out.println("[Server] Removed player " + session.name);
+                System.out.println("[SERVER] Removed player " + session.id + ": " + session.name);
                 broadcastLobbyStatus();
-                // TODO: if a player quits mid-round, update The Mind instance victory conditions
             }
         }
     }
@@ -253,7 +269,7 @@ public class Server implements Callable<Integer> {
     }
 
     // Check if enough players are present and all are ready; if so, start round 0.
-    private void tryStartRoundIfReady() {
+    private void tryGameStartIfReady() {
         if (players.isEmpty() || players.size() <= 1) {
             return;
         }
@@ -263,24 +279,7 @@ public class Server implements Callable<Integer> {
                 return; // someone not ready yet
             }
         }
-
+        theMind = new Game(players.size(), 5);
         gameStarted = true;
-        // TODO: here you would create/start The Mind game instance and deal hands
-        // TODO: currentRound = 0; roundInProgress = true; etc.
-
-        String msg = ServerCommand.GAME_STATE + " ROUND_START 0";
-        for (PlayerSession p : players) {
-            try {
-                BufferedWriter out = new BufferedWriter(
-                        new OutputStreamWriter(p.socket.getOutputStream(), StandardCharsets.UTF_8));
-                out.write(msg);
-                out.write(END_OF_LINE);
-                out.flush();
-            } catch (IOException e) {
-                System.out.println("[Server] Failed to send round start to " + p.name + ": " + e);
-            }
-        }
-
-        System.out.println("[Server] Round 0 would start here (game instance TODO).");
     }
 }

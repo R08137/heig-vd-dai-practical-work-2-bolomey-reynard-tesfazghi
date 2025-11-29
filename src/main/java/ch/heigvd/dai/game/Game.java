@@ -43,6 +43,12 @@ public class Game {
         System.out.println("Game created with " + nbPlayers + " players and " + nbCards + " cards per player.");
     }
 
+    public boolean isPlayerDeckEmpty(int playerId) {
+        Player targetPlayer = players.get(playerId);
+        if(targetPlayer.hasCards()) { return false; }
+            else return true;
+
+    }
     // Player plays a card
     public Card playLowestCardForPlayer(int playerId) {
         if (playerId < 0 || playerId >= players.size()) {
@@ -116,4 +122,7 @@ public class Game {
         return true;
     }
 
+    public ArrayList<Player> getPlayers() {
+        return players;
+    }
 }

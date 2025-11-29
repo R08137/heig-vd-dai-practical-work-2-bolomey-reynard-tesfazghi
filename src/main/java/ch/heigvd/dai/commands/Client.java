@@ -92,17 +92,7 @@ public class Client implements Callable<Integer> {
                         }
 
                         case PLAY -> {
-                            try {
-                                if (userInputParts.length < 2) {
-                                    System.out.println("Usage: PLAY <card>");
-                                    continue;
-                                }
-                                int number = Integer.parseInt(userInputParts[1].trim());
-                                request = ClientCommand.PLAY + " " + number + END_OF_LINE;
-                            } catch (NumberFormatException e) {
-                                System.out.println("Number expected. Usage: PLAY <card>");
-                                continue;
-                            }
+                            request = ClientCommand.PLAY + END_OF_LINE;
                         }
 
                         case NEXT_ROUND -> {
@@ -131,11 +121,11 @@ public class Client implements Callable<Integer> {
 
                 String serverResponse = in.readLine();
 
-//                if () { //TODO
-//                    System.out.println("[ERROR] Server timeout. Closing connection.");
-//                    socket.close();
-//                    continue;
-//                }
+                if (serverResponse == null) {
+                    System.out.println("[ERROR] Distant connection closed unexpectedly.");
+                    socket.close();
+                    continue;
+                }
 
                 String[] serverResponseParts = serverResponse.split(" ", 2);
                 ServerCommand message = null;
@@ -163,6 +153,11 @@ public class Client implements Callable<Integer> {
                         // TODO: update local view of round, hand, etc.
                     }
 
+                    case CARD_PLAYED -> {
+                        String playedCard = serverResponseParts[1];
+                        System.out.println("[INFO] Successfully played card " + playedCard);
+                    }
+
                     case VICTORY -> {
                         // TODO: react according to game spec (offer NEXT_ROUND, etc.)
                     }
@@ -171,16 +166,12 @@ public class Client implements Callable<Integer> {
                         // TODO: go back to setup phase locally
                     }
 
-                    case ERROR_LOBBY_FULL -> {
-                        System.out.println("[ERROR] Lobby is full. Closing connection.");
-                        socket.close();
-                    }
 
                     case WARNING_GAME_NOT_STARTED -> {
                         System.out.println("[WARNING] Game not started yet. Wait for everyone to get ready.");
                     }
 
-                    case WARNING_CANT_NAME_WHEN_READY -> {
+                    case WARNING_NAME_WITH_READY -> {
                         System.out.println("[WARNING] Please unready yourself before renaming.");
                     }
 
@@ -195,8 +186,25 @@ public class Client implements Callable<Integer> {
                         System.out.println("[WARNING] You attempted to play a card you don't have. Please try again.");
                     }
 
+//                    case WARNING_CARD_MISSING_VALUE -> {
+//                        System.out.println("[WARNING] Card value unspecified. Please try again");
+//                    } // See server side comment
+
+                    case WARNING_CARD_SYNTAX -> {
+                        System.out.println("[WARNING] Invalid card expression. Please try again");
+                    }
+
                     case WARNING_CARD_COOLDOWN -> {
                         System.out.println("[WARNING] You must wait before playing another card.");
+                    }
+
+                    case WARNING_DECK_EMPTY -> {
+                        System.out.println("[WARNING] No cards left!!!");
+                    }
+
+                    case ERROR_LOBBY_FULL -> {
+                        System.out.println("[ERROR] Lobby is full. Closing connection.");
+                        socket.close();
                     }
 
                     case ERROR_FATAL -> {
@@ -225,10 +233,10 @@ public class Client implements Callable<Integer> {
 
     private static void help() { // Mabye make a stategame static boolean and show different help message
         System.out.println("Usage:");
-        System.out.println("  NAME [<your name>]  - Register your name. Without name lets server pick one.");
+        System.out.println("  NAME [<your name>]  - Register your name. No specification generates a random name.");
         System.out.println("  READY               - Mark yourself as ready in the lobby.");
         System.out.println("  UNREADY             - Mark yourself as not ready.");
-        System.out.println("  PLAY <number>       - Play a card.");
+        System.out.println("  PLAY <number>       - Play your lowest card in hand.");
         System.out.println("  NEXT_ROUND          - Request next round after victory.");
         System.out.println("  QUIT                - Quit the game and close the connection.");
         System.out.println("  HELP                - Display this help message.");

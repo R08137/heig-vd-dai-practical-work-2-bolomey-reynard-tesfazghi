@@ -11,6 +11,11 @@ public class Card implements Comparable<Card> {
         return value;
     }
 
+    public int getValueAsObject() {
+        Integer integer = value;
+        return integer;
+    };
+
     @Override
     public int compareTo(Card o) {
         return Integer.compare(this.value, o.value);
