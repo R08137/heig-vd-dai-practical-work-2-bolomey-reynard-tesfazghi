@@ -10,6 +10,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
+
 import ch.heigvd.dai.game.Game;
 import picocli.CommandLine;
 
@@ -134,17 +135,17 @@ public class Server implements Callable<Integer> {
 
                 switch (command) {
                     case NAME -> { // "PlayerID" nickname server-side or client set
-                        if(session.ready) {
+                        if (session.ready) {
                             sendLine(out, ServerCommand.WARNING_NAME_WITH_READY);
                             continue;
                         }
                         for (PlayerSession player : players) {
-                            if(player.name.equals(arg)) {
+                            if (player.name.equals(arg)) {
                                 sendLine(out, ServerCommand.WARNING_NAME_TAKEN);
                             }
                         }
                         session.name = arg;
-                        sendLine(out, ServerCommand.NAME_VALIDATED + " " +arg);
+                        sendLine(out, ServerCommand.NAME_VALIDATED + " " + arg);
                         System.out.println("[SERVER] Player" + session.id + " registered as " + arg + ".");
                         broadcastLobbyStatus();
                     }
@@ -152,7 +153,7 @@ public class Server implements Callable<Integer> {
                     case READY -> {
                         session.ready = true;
                         sendLine(out, ServerCommand.STATUS_UPDATE_READY + " Readied.");
-                        System.out.println("[SERVER] Player" + session.id + "(" + session.name +") ready.");
+                        System.out.println("[SERVER] Player" + session.id + "(" + session.name + ") ready.");
                         broadcastLobbyStatus();
                         tryGameStartIfReady();
                     }
@@ -160,7 +161,7 @@ public class Server implements Callable<Integer> {
                     case UNREADY -> {
                         session.ready = false;
                         sendLine(out, ServerCommand.STATUS_UPDATE_UNREADY + " Unreadied.");
-                        System.out.println("[SERVER] Player" + session.id + "(" + session.name +") not ready.");
+                        System.out.println("[SERVER] Player" + session.id + "(" + session.name + ") not ready.");
                         broadcastLobbyStatus();
                     }
 
@@ -185,7 +186,7 @@ public class Server implements Callable<Integer> {
                         // - Check if card belongs to this player's hand
                         // - Check misplay (DEFEAT) or progress toward VICTORY
                         // For now, just echo placeholder:
-                        if(theMind.isPlayerDeckEmpty(session.id - 1)) {
+                        if (theMind.isPlayerDeckEmpty(session.id - 1)) {
                             sendLine(out, ServerCommand.WARNING_DECK_EMPTY);
                             continue;
                         }
@@ -279,7 +280,15 @@ public class Server implements Callable<Integer> {
                 return; // someone not ready yet
             }
         }
-        theMind = new Game(players.size(), 5);
-        gameStarted = true;
+
+        try {
+            theMind = new Game(players.size(), 100);
+            gameStarted = true;
+            System.out.println("[SERVER] Game started with " + players.size() + " players.");
+        } catch (Exception e) {
+            System.out.println("[SERVER] Failed to start Game: " + e);
+            e.printStackTrace(); // TODO Notify all players
+        }
     }
 }
+
