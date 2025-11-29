@@ -1,0 +1,14 @@
+package ch.heigvd.dai.commands;
+
+enum ServerCommand {
+    LOBBY_STATUS,
+    NAME_VALIDATED,
+    GAME_STATE,
+    VICTORY,
+    DEFEAT,
+    WARNING_COMMAND_INVALID,
+    WARNING_CARD_NOMATCH,
+    WARNING_CARD_COOLDOWN,
+    ERROR_FATAL,
+    PLACEHOLDER
+}
