@@ -2,6 +2,7 @@ package ch.heigvd.dai.commands;
 
 import java.io.*;
 import java.util.List;
+import java.util.Base64;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -25,7 +26,7 @@ public class Server implements Callable<Integer> {
     private static boolean gameStarted = false;
     Game theMind = null;
 
-    // per-player connection/session to identify them for game instance
+    // per-player connection/session to identify them for game instance and info
     private static class PlayerSession {
         final int id;
         final Socket commandSocket;      // main command connection
@@ -59,12 +60,21 @@ public class Server implements Callable<Integer> {
     public Integer call() {
         System.out.println("Starting server...");
 
-        try (ServerSocket serverSocket = new ServerSocket(port)) {
-            System.out.println("[SERVER] Listening on port " + port);
+        try (ServerSocket commandServerSocket = new ServerSocket(port);
+             ServerSocket broadcastServerSocket = new ServerSocket(port + 1)) {
 
-            while (!serverSocket.isClosed()) {
+            System.out.println("[SERVER] Listening on port " + port + " (commands)");
+            System.out.println("[SERVER] Listening on port " + (port + 1) + " (broadcasts)");
+
+            // thread that accepts broadcast connections and binds them to PlayerSession.broadcastSocket
+            Thread broadcastAcceptor = new Thread(() -> acceptBroadcastSockets(broadcastServerSocket));
+            broadcastAcceptor.setDaemon(true);
+            broadcastAcceptor.start();
+
+            // main loop: command connections
+            while (!commandServerSocket.isClosed()) {
                 try {
-                    Socket socket = serverSocket.accept();
+                    Socket socket = commandServerSocket.accept();
                     executor.submit(() -> ClientHandler(socket));
                 } catch (IOException e) {
                     System.out.println("[SERVER] IO exception on accept: " + e);
@@ -80,6 +90,7 @@ public class Server implements Callable<Integer> {
 
         return 0;
     }
+
 
     private void ClientHandler(Socket socket) {
         PlayerSession session = null;
@@ -101,12 +112,14 @@ public class Server implements Callable<Integer> {
                 System.out.println("[SERVER] Lobby full. Closing client...");
                 return;
             }
-
             // temporary session with default name; will be updated by NAME
             int id = playerId.getAndIncrement();
             String defaultName = "Player" + id;
             session = new PlayerSession(id, socket, defaultName);
             players.add(session);
+
+            // send the assigned id to this client
+            sendLine(out, ServerCommand.ASSIGN_ID + " " + id);
 
             // notify client connection
             broadcastLobbyStatus();
@@ -170,28 +183,14 @@ public class Server implements Callable<Integer> {
                             sendLine(out, ServerCommand.WARNING_GAME_NOT_STARTED);
                             continue;
                         }
-//                        if (arg == null || arg.isBlank()) {
-//                            sendLine(out, ServerCommand.WARNING_CARD_MISSING_VALUE);
-//                            continue;
-//                       } // Valuable only if we have something other than numbered cards
-//                        int card;
-//                        try {
-//                            card = Integer.parseInt(arg.trim());
-//                        } catch (NumberFormatException e) {
-//                            sendLine(out, ServerCommand.WARNING_CARD_SYNTAX);
-//                            continue;
-//                        }
-                        // TODO: validate play against The Mind instance, update game state
-                        // - Check cooldown (1.5 s)
-                        // - Check if card belongs to this player's hand
-                        // - Check misplay (DEFEAT) or progress toward VICTORY
-                        // For now, just echo placeholder:
                         if (theMind.isPlayerDeckEmpty(session.id - 1)) {
                             sendLine(out, ServerCommand.WARNING_DECK_EMPTY);
                             continue;
                         }
-                        sendLine(out, ServerCommand.CARD_PLAYED + " " + theMind.playLowestCardForPlayer(session.id - 1).getValueAsObject());
+                        var playedCard = theMind.playLowestCardForPlayer(session.id - 1);
+                        sendLine(out, ServerCommand.CARD_PLAYED + " " + playedCard);
                         theMind.validatePlayedSequence();
+                        broadcastGameState();
                     }
 
                     case NEXT_ROUND -> {
@@ -227,6 +226,58 @@ public class Server implements Callable<Integer> {
             }
         }
     }
+    private void acceptBroadcastSockets(ServerSocket broadcastServerSocket) {
+        while (true) {
+            try {
+                Socket socket = broadcastServerSocket.accept();
+
+                BufferedReader in = new BufferedReader(
+                        new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+                String line = in.readLine();
+                if (line == null) {
+                    socket.close();
+                    continue;
+                }
+
+                String[] parts = line.split("\\s+");
+                if (parts.length < 2) {
+                    socket.close();
+                    continue;
+                }
+
+                int id;
+                try {
+                    id = Integer.parseInt(parts[1]);
+                } catch (NumberFormatException e) {
+                    socket.close();
+                    continue;
+                }
+
+                PlayerSession target = null;
+                for (PlayerSession ps : players) {
+                    if (ps.id == id) {
+                        target = ps;
+                        break;
+                    }
+                }
+
+                if (target == null) {
+                    socket.close();
+                    continue;
+                }
+
+                // If you don't care about duplicates, just overwrite:
+                target.broadcastSocket = socket;
+                System.out.println("[SERVER] Broadcast socket attached to player "
+                        + target.id + " (" + target.name + ")");
+
+            } catch (IOException e) {
+                System.out.println("[SERVER] IO exception in broadcast acceptor: " + e);
+                break;
+            }
+        }
+    }
+
 
     private void sendLine(BufferedWriter out, String line) throws IOException {
         out.write(line);
@@ -238,35 +289,36 @@ public class Server implements Callable<Integer> {
         sendLine(out, msg.toString());
     }
 
-
-    // Broadcasts lobby state -> for now only does it server side.
     private void broadcastLobbyStatus() {
-//        StringBuilder sb = new StringBuilder();
-//        sb.append(ServerCommand.LOBBY_STATUS).append(' ');
-//        sb.append(players.size()).append(" players online.\n");
-//
-//        for (PlayerSession p : players) {
-//            sb.append("      ");
-//            sb.append("Player " + p.id + " : ")
-//                    .append(p.name).append(" : ")
-//                    .append(p.ready ? "ready\n" : "not_ready\n");
-//        }
-//
-//        String msg = sb.toString();
-//
-//        for (PlayerSession p : players) {
-//            try {
-//                BufferedWriter out = new BufferedWriter(
-//                        new OutputStreamWriter(p.socket.getOutputStream(), StandardCharsets.UTF_8));
-//                out.write(msg);
-//                out.write(END_OF_LINE);
-//                out.flush();
-//            } catch (IOException e) {
-//                System.out.println("[Server] Failed to send lobby status to " + p.name + ": " + e);
-//            }
-//        }
-//
-//        System.out.println("[Server] Broadcast lobby status: " + msg);
+        // TODO
+    }
+
+    private void broadcastGameState() {
+        if (theMind == null) {
+            return;
+        }
+
+        String state = theMind.toStringLightWeight(); // from step 1
+        String encoded = Base64.getEncoder()
+                .encodeToString(state.getBytes(StandardCharsets.UTF_8));
+
+        String msg = ServerCommand.GAME_STATE + " " + encoded;
+
+        for (PlayerSession p : players) {
+            if (p.broadcastSocket == null) {
+                continue; // player has not established their state socket yet
+            }
+
+            try {
+                BufferedWriter out = new BufferedWriter(
+                        new OutputStreamWriter(p.broadcastSocket.getOutputStream(), StandardCharsets.UTF_8));
+                out.write(msg);
+                out.write(END_OF_LINE);
+                out.flush();
+            } catch (IOException e) {
+                System.out.println("[SERVER] Failed to send game state to " + p.name + ": " + e);
+            }
+        }
     }
 
     // Check if enough players are present and all are ready; if so, start round 0.
@@ -285,6 +337,9 @@ public class Server implements Callable<Integer> {
             theMind = new Game(players.size(), 5);
             gameStarted = true;
             System.out.println("[SERVER] Game started with " + players.size() + " players.");
+
+            broadcastGameState();
+
         } catch (Exception e) {
             System.out.println("[SERVER] Failed to start Game: " + e);
             e.printStackTrace(); // TODO Notify all players

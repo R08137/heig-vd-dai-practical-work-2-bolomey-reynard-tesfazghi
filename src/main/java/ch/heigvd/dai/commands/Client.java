@@ -48,7 +48,48 @@ public class Client implements Callable<Integer> {
              Writer writer = new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8);
              BufferedWriter out = new BufferedWriter(writer)) {
 
-            System.out.println("[Client] Connected to " + host + ":" + port);
+            // Read ASSIGN_ID from server
+            int playerId = -1;
+            String firstLine = in.readLine();
+            if (firstLine != null) {
+                String[] parts = firstLine.split(" ", 2);
+                try {
+                    ServerCommand cmd = ServerCommand.valueOf(parts[0]);
+                    if (cmd == ServerCommand.ASSIGN_ID && parts.length > 1) {
+                        playerId = Integer.parseInt(parts[1].trim());
+                        System.out.println("[CLIENT] Assigned id " + playerId);
+                    } else {
+                        System.out.println("[CLIENT] Unexpected first server message: " + firstLine);
+                    }
+                } catch (IllegalArgumentException e) {
+                    System.out.println("[CLIENT] Unknown first server message: " + firstLine);
+                }
+            }
+
+            if (playerId < 0) {
+                System.out.println("[Client] No valid id from server. Aborting.");
+                return 1;
+            }
+
+            // 2) Second socket for game state
+            Socket stateSocket = new Socket(host, port + 1);
+
+            // Send handshake: ID <id>
+            BufferedWriter stateOut = new BufferedWriter(
+                    new OutputStreamWriter(stateSocket.getOutputStream(), StandardCharsets.UTF_8));
+            stateOut.write("ID " + playerId + END_OF_LINE);
+            stateOut.flush();
+
+            BufferedReader stateIn = new BufferedReader(
+                    new InputStreamReader(stateSocket.getInputStream(), StandardCharsets.UTF_8));
+
+            // 3) Launch separate thread that only listens for GAME_STATE messages.
+            Thread stateListener = new Thread(() -> listenToGameState(stateIn));
+            stateListener.setDaemon(true);
+            stateListener.start();
+
+            System.out.println("[Client] Connected to " + host + ":" + port + " (commands)");
+            System.out.println("[Client] Connected to " + host + ":" + (port + 1) + " (game state)");
             System.out.println();
 
             help();
@@ -224,6 +265,43 @@ public class Client implements Callable<Integer> {
 
         return 0;
     }
+
+    private void listenToGameState(BufferedReader stateIn) {
+        try {
+            String line;
+            while ((line = stateIn.readLine()) != null) {
+                String[] parts = line.split(" ", 2);
+                if (parts.length == 0) {
+                    continue;
+                }
+
+                ServerCommand cmd;
+                try {
+                    cmd = ServerCommand.valueOf(parts[0]);
+                } catch (IllegalArgumentException e) {
+                    System.out.println("[STATE] Unknown server message on state socket: " + parts[0]);
+                    continue;
+                }
+
+                if (cmd == ServerCommand.GAME_STATE && parts.length > 1) {
+                    // State payload is Base64 encoded; decode and print.
+                    String encoded = parts[1];
+                    String gameState = new String(
+                            java.util.Base64.getDecoder().decode(encoded),
+                            StandardCharsets.UTF_8);
+                    System.out.println("========== GAME STATE ==========");
+                    System.out.println(gameState);
+                    System.out.println("================================");
+                } else {
+                    // Ignore other messages on this socket (or log them)
+                    System.out.println("[STATE] " + line);
+                }
+            }
+        } catch (IOException e) {
+            System.out.println("[STATE] State socket closed or error: " + e);
+        }
+    }
+
 
     public static String RandomName() {
         String adjective = ADJECTIVES[RANDOM.nextInt(ADJECTIVES.length)];

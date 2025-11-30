@@ -1,6 +1,7 @@
 package ch.heigvd.dai.commands;
 
 enum ServerCommand {
+    ASSIGN_ID,
     NAME_VALIDATED,
     GAME_STATE,
     CARD_PLAYED,
