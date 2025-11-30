@@ -19,6 +19,11 @@
       <artifactId>picocli</artifactId>
       <version>4.7.6</version>
     </dependency>
+      <dependency>
+          <groupId>com.googlecode.lanterna</groupId>
+          <artifactId>lanterna</artifactId>
+          <version>3.1.2</version>
+      </dependency>
   </dependencies>
 
   <build>
