@@ -202,7 +202,7 @@ public class Server implements Callable<Integer> {
                             sendLine(out, ServerCommand.WARNING_DECK_EMPTY);
                             continue;
                         }
-                        var playedCard = theMind.playLowestCardForPlayer(session.id - 1);
+                        var playedCard = theMind.playLowestCardForPlayer(session.id - 1).getValue();
                         sendLine(out, ServerCommand.CARD_PLAYED + " " + playedCard);
                         theMind.validatePlayedSequence();
                         broadcastGameState();
