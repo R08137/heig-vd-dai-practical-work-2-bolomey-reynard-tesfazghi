@@ -282,7 +282,7 @@ public class Server implements Callable<Integer> {
         }
 
         try {
-            theMind = new Game(players.size(), 100);
+            theMind = new Game(players.size(), 5);
             gameStarted = true;
             System.out.println("[SERVER] Game started with " + players.size() + " players.");
         } catch (Exception e) {
