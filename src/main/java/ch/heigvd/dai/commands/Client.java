@@ -48,16 +48,20 @@ public class Client implements Callable<Integer> {
              Writer writer = new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8);
              BufferedWriter out = new BufferedWriter(writer)) {
 
-            // Read ASSIGN_ID from server
+            // Read ID_ASSIGN from server
             int playerId = -1;
             String firstLine = in.readLine();
             if (firstLine != null) {
                 String[] parts = firstLine.split(" ", 2);
                 try {
                     ServerCommand cmd = ServerCommand.valueOf(parts[0]);
-                    if (cmd == ServerCommand.ASSIGN_ID && parts.length > 1) {
+                    if (cmd == ServerCommand.ID_ASSIGN && parts.length > 1) {
                         playerId = Integer.parseInt(parts[1].trim());
                         System.out.println("[CLIENT] Assigned id " + playerId);
+
+                        // send ID_VALIDATE back to the server
+                        out.write("ID_VALIDATE" + END_OF_LINE);
+                        out.flush();
                     } else {
                         System.out.println("[CLIENT] Unexpected first server message: " + firstLine);
                     }
@@ -71,7 +75,7 @@ public class Client implements Callable<Integer> {
                 return 1;
             }
 
-            // 2) Second socket for game state
+            // second socket for game and lobby state
             Socket stateSocket = new Socket(host, port + 1);
 
             // Send handshake: ID <id>
@@ -83,7 +87,7 @@ public class Client implements Callable<Integer> {
             BufferedReader stateIn = new BufferedReader(
                     new InputStreamReader(stateSocket.getInputStream(), StandardCharsets.UTF_8));
 
-            // 3) Launch separate thread that only listens for GAME_STATE messages.
+            // Launch separate thread that only listens for LOBBY_STATE and eventually GAME_STATE messages.
             Thread stateListener = new Thread(() -> listenToGameState(stateIn));
             stateListener.setDaemon(true);
             stateListener.start();
@@ -227,10 +231,6 @@ public class Client implements Callable<Integer> {
                         System.out.println("[WARNING] You attempted to play a card you don't have. Please try again.");
                     }
 
-//                    case WARNING_CARD_MISSING_VALUE -> {
-//                        System.out.println("[WARNING] Card value unspecified. Please try again");
-//                    } // See server side comment
-
                     case WARNING_CARD_SYNTAX -> {
                         System.out.println("[WARNING] Invalid card expression. Please try again");
                     }
@@ -284,7 +284,7 @@ public class Client implements Callable<Integer> {
                 }
 
                 if (cmd == ServerCommand.GAME_STATE && parts.length > 1) {
-                    // State payload is Base64 encoded; decode and print.
+                    // State payload is Base64 encoded
                     String encoded = parts[1];
                     String gameState = new String(
                             java.util.Base64.getDecoder().decode(encoded),

@@ -112,14 +112,29 @@ public class Server implements Callable<Integer> {
                 System.out.println("[SERVER] Lobby full. Closing client...");
                 return;
             }
-            // temporary session with default name; will be updated by NAME
+
+            // temporary session with default name; can be updated by NAME
             int id = playerId.getAndIncrement();
             String defaultName = "Player" + id;
             session = new PlayerSession(id, socket, defaultName);
             players.add(session);
 
             // send the assigned id to this client
-            sendLine(out, ServerCommand.ASSIGN_ID + " " + id);
+            sendLine(out, ServerCommand.ID_ASSIGN + " " + id);
+
+            // wait for ID_VALIDATE from client
+            String ackLine = in.readLine();
+            if (ackLine == null) {
+                System.out.println("[SERVER] Client disconnected before ID_VALIDATE");
+                players.remove(session);
+                return;
+            }
+            String[] ackParts = ackLine.trim().split("\\s+");
+            if (!ackParts[0].equalsIgnoreCase("ID_VALIDATE")) {
+                System.out.println("[SERVER] Expected ID_VALIDATE, got: " + ackLine);
+                players.remove(session);
+                return;
+            }
 
             // notify client connection
             broadcastLobbyStatus();
@@ -266,7 +281,6 @@ public class Server implements Callable<Integer> {
                     continue;
                 }
 
-                // If you don't care about duplicates, just overwrite:
                 target.broadcastSocket = socket;
                 System.out.println("[SERVER] Broadcast socket attached to player "
                         + target.id + " (" + target.name + ")");
