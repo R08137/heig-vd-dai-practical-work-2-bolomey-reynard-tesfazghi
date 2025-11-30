@@ -88,6 +88,21 @@ public class Game {
         return sb.toString();
     }
 
+    public String toStringLightWeight() { // For client state (no need for remaining cards)
+        StringBuilder sb = new StringBuilder();
+        sb.append("Number of players : " + players.size() + "\n");
+        for (Player p : players) {
+            sb.append(p.toString()).append("\n");
+        }
+        sb.append("Played cards :\n");
+        int index = 0;
+        for (Card c : stackOfCards) {
+            sb.append(String.format("%2d, ", c.getValue()));
+            if (++index % 10 == 0) { sb.append("\n"); }
+        }
+        return sb.toString();
+    }
+
     public boolean isFinished() {
         for (Player p : players) {
             if (p.hasCards()) return false;
