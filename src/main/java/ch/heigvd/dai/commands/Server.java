@@ -328,7 +328,7 @@ public class Server implements Callable<Integer> {
             sbState.append("Player list: ").append(playerList).append("\n");
             sbState.append("You are " + p.name + ".\n\n"
                     + "Current deck : \n" + theMind.getPlayerDeck(p.id - 1).toString()
-                    + "Stack (with last played card)\n" + theMind.getTopOfStack());
+                    + "Card in play :\n" + theMind.getTopOfStack());
             if (lastPlay != null) {
                 sbState.append("played by ").append(lastPlay.name).append(".");
             }
