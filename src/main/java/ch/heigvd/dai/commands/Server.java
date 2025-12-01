@@ -139,7 +139,7 @@ public class Server implements Callable<Integer> {
             }
 
             // notify client connection
-            broadcastLobbyStatus();
+            broadcastLobby();
 
             String line;
             while ((line = in.readLine()) != null) {
@@ -177,14 +177,14 @@ public class Server implements Callable<Integer> {
                         session.name = arg;
                         sendLine(out, ServerCommand.NAME_VALIDATED + " " + arg);
                         System.out.println("[SERVER] Player" + session.id + " registered as " + arg + ".");
-                        broadcastLobbyStatus();
+                        broadcastLobby();
                     }
 
                     case READY -> {
                         session.ready = true;
                         sendLine(out, ServerCommand.STATUS_UPDATE_READY + " Readied.");
                         System.out.println("[SERVER] Player" + session.id + "(" + session.name + ") ready.");
-                        broadcastLobbyStatus();
+                        broadcastLobby();
                         tryGameStartIfReady();
                     }
 
@@ -192,7 +192,7 @@ public class Server implements Callable<Integer> {
                         session.ready = false;
                         sendLine(out, ServerCommand.STATUS_UPDATE_UNREADY + " Unreadied.");
                         System.out.println("[SERVER] Player" + session.id + "(" + session.name + ") not ready.");
-                        broadcastLobbyStatus();
+                        broadcastLobby();
                     }
 
                     case PLAY -> {
