@@ -22,9 +22,14 @@ public class Card implements Comparable<Card> {
     }
 
     public String toString() {
+        String tempValue;
+        if (this.value != 0) {
+            tempValue = String.format("%3d", this.value);
+        } else tempValue = "   ";
+
         StringBuilder sb = new StringBuilder();
         sb.append("╔═══╗\n");
-        sb.append("║").append(String.format("%3d", value)).append("║\n");
+        sb.append("║").append(tempValue).append("║\n");
         sb.append("╚═══╝\n");
         return sb.toString();
     }
