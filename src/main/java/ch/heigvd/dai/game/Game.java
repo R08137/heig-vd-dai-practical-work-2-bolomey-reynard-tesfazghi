@@ -113,7 +113,7 @@ public class Game {
         // Cards in hands of players
         List<Card> remainingInHands = new ArrayList<>();
         for (Player p : players) {
-            remainingInHands.addAll(p.getCards());
+            remainingInHands.addAll(p.getCardsValue());
         }
 
         // Combine cards played with those remaining in hands
@@ -125,11 +125,11 @@ public class Game {
         // Verify order
         for (int i = 0; i < playedSoFar.size(); i++) {
             if (combined.get(i).getValue() != playedSoFar.get(i).getValue()) {
-                System.out.println("Validation failed at played card: " + playedSoFar.get(i).getValue());
+                // System.out.println("Validation failed at played card: " + playedSoFar.get(i).getValue());
                 return false;
             }
         }
-        System.out.println("All played cards are in correct order.");
+        // System.out.println("All played cards are in correct order.");
         return true;
     }
 
