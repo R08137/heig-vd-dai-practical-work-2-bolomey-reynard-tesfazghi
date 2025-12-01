@@ -43,12 +43,17 @@ public class Game {
         System.out.println("Game created with " + nbPlayers + " players and " + nbCards + " cards per player.");
     }
 
+    public DeckOfCards getPlayerDeck(int playerId) {
+        return players.get(playerId).getDeckOfCards();
+    }
+
     public boolean isPlayerDeckEmpty(int playerId) {
         Player targetPlayer = players.get(playerId);
         if(targetPlayer.hasCards()) { return false; }
             else return true;
 
     }
+
     // Player plays a card
     public Card playLowestCardForPlayer(int playerId) {
         if (playerId < 0 || playerId >= players.size()) {
