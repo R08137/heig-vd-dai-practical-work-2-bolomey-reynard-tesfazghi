@@ -1,7 +1,6 @@
 package ch.heigvd.dai.game;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 
 public class Player {
     private int id;
@@ -16,9 +15,11 @@ public class Player {
         return this.id;
     }
 
-    public ArrayList<Card> getCards(){
+    public ArrayList<Card> getCardsValue(){
         return deckOfCards.getCards();
     }
+
+    public DeckOfCards getDeckOfCards(){return this.deckOfCards;}
 
     @Override
     public String toString(){

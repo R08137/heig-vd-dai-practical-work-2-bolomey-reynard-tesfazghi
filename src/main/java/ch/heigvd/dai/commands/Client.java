@@ -48,16 +48,19 @@ public class Client implements Callable<Integer> {
              Writer writer = new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8);
              BufferedWriter out = new BufferedWriter(writer)) {
 
-            // Read ASSIGN_ID from server
+            // Handshake
             int playerId = -1;
             String firstLine = in.readLine();
             if (firstLine != null) {
                 String[] parts = firstLine.split(" ", 2);
                 try {
                     ServerCommand cmd = ServerCommand.valueOf(parts[0]);
-                    if (cmd == ServerCommand.ASSIGN_ID && parts.length > 1) {
+                    if (cmd == ServerCommand.ID_ASSIGN && parts.length > 1) {
                         playerId = Integer.parseInt(parts[1].trim());
                         System.out.println("[CLIENT] Assigned id " + playerId);
+
+                        out.write("ID_VALIDATE" + END_OF_LINE);
+                        out.flush();
                     } else {
                         System.out.println("[CLIENT] Unexpected first server message: " + firstLine);
                     }
@@ -71,10 +74,9 @@ public class Client implements Callable<Integer> {
                 return 1;
             }
 
-            // 2) Second socket for game state
+            // Second socket for game and lobby state
             Socket stateSocket = new Socket(host, port + 1);
 
-            // Send handshake: ID <id>
             BufferedWriter stateOut = new BufferedWriter(
                     new OutputStreamWriter(stateSocket.getOutputStream(), StandardCharsets.UTF_8));
             stateOut.write("ID " + playerId + END_OF_LINE);
@@ -83,181 +85,32 @@ public class Client implements Callable<Integer> {
             BufferedReader stateIn = new BufferedReader(
                     new InputStreamReader(stateSocket.getInputStream(), StandardCharsets.UTF_8));
 
-            // 3) Launch separate thread that only listens for GAME_STATE messages.
-            Thread stateListener = new Thread(() -> listenToGameState(stateIn));
+            // Create TUI
+            ClientUI tui = new ClientUI();
+            tui.updateServerText("[INFO] Connected to " + host + ":" + port);
+            tui.updateLobby("Waiting for lobby state...");
+
+            // State listener thread: push lobby/game state into TUI
+            Thread stateListener = new Thread(() -> listenToGameState(stateIn, tui));
             stateListener.setDaemon(true);
             stateListener.start();
 
-            System.out.println("[Client] Connected to " + host + ":" + port + " (commands)");
-            System.out.println("[Client] Connected to " + host + ":" + (port + 1) + " (game state)");
-            System.out.println();
 
-            help();
-
-            while (!socket.isClosed()) {
-                System.out.print("> ");
-
-                Reader inputReader = new InputStreamReader(System.in, StandardCharsets.UTF_8);
-                BufferedReader bir = new BufferedReader(inputReader);
-                String userInput = bir.readLine();
-
-                if (userInput == null) {
-                    socket.close();
-                    break;
-                }
-
+            // Run TUI in current thread: when user hits ENTER, send to server
+            tui.run(userInput -> {
                 try {
-                    String[] userInputParts = userInput.trim().split("\\s+", 2);
-                    if (userInputParts[0].isEmpty()) {
-                        continue;
-                    }
-
-                    ClientCommand cmd =
-                            ClientCommand.valueOf(userInputParts[0].toUpperCase());
-
-                    String request = null;
-
-                    switch (cmd) {
-                        case NAME -> {
-                            // NAME or NAME <name>
-                            String name = (userInputParts.length > 1) ? userInputParts[1].trim() : RandomName();
-                            request = ClientCommand.NAME + " " + name + END_OF_LINE;
-                        }
-
-                        case READY -> {
-                            request = ClientCommand.READY + END_OF_LINE;
-                        }
-
-                        case UNREADY -> {
-                            request = ClientCommand.UNREADY + END_OF_LINE;
-                        }
-
-                        case PLAY -> {
-                            request = ClientCommand.PLAY + END_OF_LINE;
-                        }
-
-                        case NEXT_ROUND -> {
-                            request = ClientCommand.NEXT_ROUND + END_OF_LINE;
-                        }
-
-                        case QUIT -> {
-                            socket.close();
-                            continue;
-                        }
-
-                        case HELP -> {
-                            help();
-                            continue;
-                        }
-                    }
-
-                    if (request != null) {
-                        out.write(request);
-                        out.flush();
-                    }
-                } catch (IllegalArgumentException e) {
-                    System.out.println("[ERROR] Invalid command. Type HELP for command list.");
-                    continue;
+                    handleUserCommand(userInput, out, in, socket, tui);
+                } catch (IOException e) {
+                    tui.updateServerText("[ERROR] Failed to send command: " + e.getMessage());
+                    try { socket.close(); } catch (IOException ignored) {}
                 }
-
-                String serverResponse = in.readLine();
-
-                if (serverResponse == null) {
-                    System.out.println("[ERROR] Distant connection closed unexpectedly.");
-                    socket.close();
-                    continue;
-                }
-
-                String[] serverResponseParts = serverResponse.split(" ", 2);
-                ServerCommand message = null;
-                try {
-                    message = ServerCommand.valueOf(serverResponseParts[0]);
-                } catch (IllegalArgumentException e) {
-                    System.out.println("[ERROR] Unknown server message: " + serverResponseParts[0]);
-                }
-
-                switch (message) {
-                    case NAME_VALIDATED -> {
-                        String playerName = serverResponseParts[1];
-                        System.out.println("[INFO] Welcome " + playerName + ". Please ready yourself.");
-                    }
-
-                    case STATUS_UPDATE_READY -> {
-                        System.out.println("[INFO] Successfully readied.");
-                    }
-
-                    case STATUS_UPDATE_UNREADY -> {
-                        System.out.println("[INFO] Successfully unreadied.");
-                    }
-
-                    case GAME_STATE -> {
-                        // TODO: update local view of round, hand, etc.
-                    }
-
-                    case CARD_PLAYED -> {
-                        String playedCard = serverResponseParts[1];
-                        System.out.println("[INFO] Successfully played card " + playedCard);
-                    }
-
-                    case VICTORY -> {
-                        // TODO: react according to game spec (offer NEXT_ROUND, etc.)
-                    }
-
-                    case DEFEAT -> {
-                        // TODO: go back to setup phase locally
-                    }
+            });
 
 
-                    case WARNING_GAME_NOT_STARTED -> {
-                        System.out.println("[WARNING] Game not started yet. Wait for everyone to get ready.");
-                    }
-
-                    case WARNING_NAME_WITH_READY -> {
-                        System.out.println("[WARNING] Please unready yourself before renaming.");
-                    }
-
-                    case WARNING_NAME_TAKEN -> {
-                        System.out.println("[WARNING] Name is already taken. Please choose another.");
-                    }
-                    case WARNING_COMMAND_INVALID -> {
-                        System.out.println("[WARNING] Invalid command.");
-                    }
-
-                    case WARNING_CARD_NOMATCH -> {
-                        System.out.println("[WARNING] You attempted to play a card you don't have. Please try again.");
-                    }
-
-//                    case WARNING_CARD_MISSING_VALUE -> {
-//                        System.out.println("[WARNING] Card value unspecified. Please try again");
-//                    } // See server side comment
-
-                    case WARNING_CARD_SYNTAX -> {
-                        System.out.println("[WARNING] Invalid card expression. Please try again");
-                    }
-
-                    case WARNING_CARD_COOLDOWN -> {
-                        System.out.println("[WARNING] You must wait before playing another card.");
-                    }
-
-                    case WARNING_DECK_EMPTY -> {
-                        System.out.println("[WARNING] No cards left!!!");
-                    }
-
-                    case ERROR_LOBBY_FULL -> {
-                        System.out.println("[ERROR] Lobby is full. Closing connection.");
-                        socket.close();
-                    }
-
-                    case ERROR_FATAL -> {
-                        System.out.println("[ERROR] Server fatal error, Closing connection.");
-                        socket.close();
-                    }
-
-                    case null, default -> System.out.println("Invalid/unknown command sent by server...");
-                }
-            }
-
+            // If TUI exits:
             System.out.println("[CLIENT] Closing connection...");
+            socket.close();
+            stateSocket.close();
         } catch (Exception e) {
             System.out.println("[CLIENT] Exception: " + e);
             return 1;
@@ -266,7 +119,141 @@ public class Client implements Callable<Integer> {
         return 0;
     }
 
-    private void listenToGameState(BufferedReader stateIn) {
+
+    private void handleServerResponse(String serverResponse, ClientUI tui, Socket socket) {
+        if (serverResponse == null) {
+            tui.updateServerText("[ERROR] Distant connection closed unexpectedly.");
+            try {
+                socket.close();
+            } catch (IOException ignored) {}
+            return;
+        }
+
+        String[] serverResponseParts = serverResponse.split(" ", 2);
+        ServerCommand message = null;
+        try {
+            message = ServerCommand.valueOf(serverResponseParts[0]);
+        } catch (IllegalArgumentException e) {
+            tui.updateServerText("[ERROR] Unknown server message: " + serverResponseParts[0]);
+            return;
+        }
+
+        switch (message) {
+            case NAME_VALIDATED -> {
+                String playerName = serverResponseParts.length > 1 ? serverResponseParts[1] : "";
+                tui.updateServerText("[INFO] Welcome " + playerName + ". Please ready yourself.");
+            }
+            case STATUS_UPDATE_READY -> {
+                tui.updateServerText("[INFO] Successfully readied.");
+            }
+            case STATUS_UPDATE_UNREADY -> {
+                tui.updateServerText("[INFO] Successfully unreadied.");
+            }
+            case GAME_STATE -> {
+                // Useless with game_state?
+            }
+            case CARD_PLAYED -> {
+                String playedCard = serverResponseParts.length > 1 ? serverResponseParts[1] : "?";
+                tui.updateServerText("[INFO] Successfully played card " + playedCard);
+            }
+            case WARNING_GAME_NOT_STARTED -> {
+                tui.updateServerText("[WARNING] Game not started yet. Wait for everyone to get ready.");
+            }
+            case WARNING_NAME_WITH_READY -> {
+                tui.updateServerText("[WARNING] Please unready yourself before renaming.");
+            }
+            case WARNING_NAME_TAKEN -> {
+                tui.updateServerText("[WARNING] Name is already taken. Please choose another.");
+            }
+            case WARNING_COMMAND_INVALID -> {
+                tui.updateServerText("[WARNING] Invalid command.");
+            }
+            case WARNING_CARD_NOMATCH -> {
+                tui.updateServerText("[WARNING] You attempted to play a card you don't have. Please try again.");
+            }
+            case WARNING_CARD_SYNTAX -> {
+                tui.updateServerText("[WARNING] Invalid card expression. Please try again");
+            }
+            case WARNING_CARD_COOLDOWN -> {
+                tui.updateServerText("[WARNING] You must wait before playing another card.");
+            }
+            case WARNING_DECK_EMPTY -> {
+                tui.updateServerText("[WARNING] No cards left!!!");
+            }
+            case ERROR_LOBBY_FULL -> {
+                tui.updateServerText("[ERROR] Lobby is full. Closing connection.");
+                try { socket.close(); } catch (IOException ignored) {}
+            }
+            case ERROR_FATAL -> {
+                tui.updateServerText("[ERROR] Server fatal error, Closing connection.");
+                try { socket.close(); } catch (IOException ignored) {}
+            }
+            default -> tui.updateServerText("Invalid/unknown command sent by server...");
+        }
+    }
+
+    private void handleUserCommand(String userInput,
+                                   BufferedWriter out,
+                                   BufferedReader in,
+                                   Socket socket,
+                                   ClientUI tui) throws IOException {
+
+        String trimmed = userInput.trim();
+        if (trimmed.isEmpty()) {
+            return;
+        }
+
+        String[] userInputParts = trimmed.split("\\s+", 2);
+        ClientCommand cmd;
+        try {
+            cmd = ClientCommand.valueOf(userInputParts[0].toUpperCase());
+        } catch (IllegalArgumentException e) {
+            tui.updateServerText("[ERROR] Invalid command. Type HELP for command list.");
+            return;
+        }
+
+        String request = null;
+
+        switch (cmd) {
+            case NAME -> {
+                String name = (userInputParts.length > 1)
+                        ? userInputParts[1].trim()
+                        : RandomName();
+                request = ClientCommand.NAME + " " + name + END_OF_LINE;
+            }
+            case READY -> request = ClientCommand.READY + END_OF_LINE;
+            case UNREADY -> request = ClientCommand.UNREADY + END_OF_LINE;
+            case PLAY -> request = ClientCommand.PLAY + END_OF_LINE;
+            case NEXT_ROUND -> request = ClientCommand.NEXT_ROUND + END_OF_LINE;
+            case QUIT -> {
+                socket.close();
+                tui.updateServerText("[INFO] Connection closed.");
+                return;
+            }
+            case HELP -> {
+                // Show help in the TUI
+                tui.updateServerText("Usage: NAME, READY, UNREADY, PLAY, NEXT_ROUND, QUIT, HELP");
+                return;
+            }
+        }
+
+        if (request != null) {
+            out.write(request);
+            out.flush();
+
+            // Immediately read the response for THIS command
+            String serverResponse = in.readLine();
+            if (serverResponse == null) {
+                tui.updateServerText("[ERROR] Distant connection closed unexpectedly.");
+                socket.close();
+                return;
+            }
+
+            handleServerResponse(serverResponse, tui, socket);
+        }
+    }
+
+    private void listenToGameState(BufferedReader stateIn, ClientUI tui) {
         try {
             String line;
             while ((line = stateIn.readLine()) != null) {
@@ -279,28 +266,26 @@ public class Client implements Callable<Integer> {
                 try {
                     cmd = ServerCommand.valueOf(parts[0]);
                 } catch (IllegalArgumentException e) {
-                    System.out.println("[STATE] Unknown server message on state socket: " + parts[0]);
+                    tui.updateLobby("[STATE] Unknown server message on state socket: " + parts[0]);
                     continue;
                 }
 
                 if (cmd == ServerCommand.GAME_STATE && parts.length > 1) {
-                    // State payload is Base64 encoded; decode and print.
                     String encoded = parts[1];
                     String gameState = new String(
                             java.util.Base64.getDecoder().decode(encoded),
                             StandardCharsets.UTF_8);
-                    System.out.println("========== GAME STATE ==========");
-                    System.out.println(gameState);
-                    System.out.println("================================");
+
+                    tui.updateLobby(gameState);
                 } else {
-                    // Ignore other messages on this socket (or log them)
-                    System.out.println("[STATE] " + line);
+                    tui.updateLobby("[STATE] " + line);
                 }
             }
         } catch (IOException e) {
-            System.out.println("[STATE] State socket closed or error: " + e);
+            tui.updateLobby("[STATE] State socket closed or error: " + e.getMessage());
         }
     }
+
 
 
     public static String RandomName() {

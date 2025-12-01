@@ -1,8 +1,9 @@
 package ch.heigvd.dai.commands;
 
 enum ServerCommand {
-    ASSIGN_ID,
+    ID_ASSIGN,
     NAME_VALIDATED,
+    LOBBY_STATE,
     GAME_STATE,
     CARD_PLAYED,
     VICTORY,
@@ -15,7 +16,6 @@ enum ServerCommand {
     WARNING_GAME_NOT_STARTED,
     WARNING_DECK_EMPTY,
     WARNING_CARD_NOMATCH,
-//    WARNING_CARD_MISSING_VALUE,
     WARNING_CARD_SYNTAX,
     WARNING_CARD_COOLDOWN,
     ERROR_LOBBY_FULL,

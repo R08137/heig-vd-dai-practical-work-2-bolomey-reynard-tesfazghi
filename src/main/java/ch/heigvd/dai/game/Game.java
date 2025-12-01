@@ -1,6 +1,5 @@
 package ch.heigvd.dai.game;
 
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -43,12 +42,17 @@ public class Game {
         System.out.println("Game created with " + nbPlayers + " players and " + nbCards + " cards per player.");
     }
 
+    public DeckOfCards getPlayerDeck(int playerId) {
+        return players.get(playerId).getDeckOfCards();
+    }
+
     public boolean isPlayerDeckEmpty(int playerId) {
         Player targetPlayer = players.get(playerId);
         if(targetPlayer.hasCards()) { return false; }
             else return true;
 
     }
+
     // Player plays a card
     public Card playLowestCardForPlayer(int playerId) {
         if (playerId < 0 || playerId >= players.size()) {
@@ -88,19 +92,11 @@ public class Game {
         return sb.toString();
     }
 
-    public String toStringLightWeight() { // For client state (no need for remaining cards)
-        StringBuilder sb = new StringBuilder();
-        sb.append("Number of players : " + players.size() + "\n");
-        for (Player p : players) {
-            sb.append(p.toString()).append("\n");
+    public Card getTopOfStack() {
+        if (stackOfCards.isEmpty()) {
+            return new Card(0);
         }
-        sb.append("Played cards :\n");
-        int index = 0;
-        for (Card c : stackOfCards) {
-            sb.append(String.format("%2d, ", c.getValue()));
-            if (++index % 10 == 0) { sb.append("\n"); }
-        }
-        return sb.toString();
+        return stackOfCards.get(stackOfCards.size() - 1);
     }
 
     public boolean isFinished() {
@@ -117,7 +113,7 @@ public class Game {
         // Cards in hands of players
         List<Card> remainingInHands = new ArrayList<>();
         for (Player p : players) {
-            remainingInHands.addAll(p.getCards());
+            remainingInHands.addAll(p.getCardsValue());
         }
 
         // Combine cards played with those remaining in hands
@@ -129,11 +125,11 @@ public class Game {
         // Verify order
         for (int i = 0; i < playedSoFar.size(); i++) {
             if (combined.get(i).getValue() != playedSoFar.get(i).getValue()) {
-                System.out.println("Validation failed at played card: " + playedSoFar.get(i).getValue());
+                // System.out.println("Validation failed at played card: " + playedSoFar.get(i).getValue());
                 return false;
             }
         }
-        System.out.println("All played cards are in correct order.");
+        // System.out.println("All played cards are in correct order.");
         return true;
     }
 
