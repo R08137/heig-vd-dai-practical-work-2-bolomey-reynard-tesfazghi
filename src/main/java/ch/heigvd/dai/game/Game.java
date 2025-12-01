@@ -1,6 +1,5 @@
 package ch.heigvd.dai.game;
 
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -93,19 +92,11 @@ public class Game {
         return sb.toString();
     }
 
-    public String toStringLightWeight() { // For client state (no need for remaining cards)
-        StringBuilder sb = new StringBuilder();
-        sb.append("Number of players : " + players.size() + "\n");
-        for (Player p : players) {
-            sb.append(p.toString()).append("\n");
+    public Card getTopOfStack() {
+        if (stackOfCards.isEmpty()) {
+            return new Card(0);
         }
-        sb.append("Played cards :\n");
-        int index = 0;
-        for (Card c : stackOfCards) {
-            sb.append(String.format("%2d, ", c.getValue()));
-            if (++index % 10 == 0) { sb.append("\n"); }
-        }
-        return sb.toString();
+        return stackOfCards.get(stackOfCards.size() - 1);
     }
 
     public boolean isFinished() {
