@@ -44,6 +44,8 @@ public class Server implements Callable<Integer> {
         }
     }
 
+    private PlayerSession lastPlay = null;
+
 
     public static String END_OF_LINE = "\n";
 
