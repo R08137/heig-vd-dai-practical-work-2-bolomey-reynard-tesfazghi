@@ -1,7 +1,6 @@
 package ch.heigvd.dai.game;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 
 public class Player {
     private int id;
