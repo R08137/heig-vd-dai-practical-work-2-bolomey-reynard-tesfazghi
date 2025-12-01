@@ -240,7 +240,7 @@ public class Server implements Callable<Integer> {
             if (session != null) {
                 players.remove(session);
                 System.out.println("[SERVER] Removed player " + session.id + ": " + session.name);
-                broadcastLobbyStatus();
+                broadcastLobby();
             }
         }
     }
@@ -306,7 +306,7 @@ public class Server implements Callable<Integer> {
         sendLine(out, msg.toString());
     }
 
-    private void broadcastLobbyStatus() {
+    private void broadcastLobby() {
         // TODO
     }
 
@@ -315,17 +315,27 @@ public class Server implements Callable<Integer> {
             return;
         }
 
-        String state = theMind.toStringLightWeight(); // from step 1
-        String encoded = Base64.getEncoder()
-                .encodeToString(state.getBytes(StandardCharsets.UTF_8));
-
-        String msg = ServerCommand.GAME_STATE + " " + encoded;
+        String playerList = "";
+        for (PlayerSession p : players) {
+            playerList = playerList.concat(p.name + " ");
+        }
 
         for (PlayerSession p : players) {
             if (p.broadcastSocket == null) {
                 continue; // player has not established their state socket yet
             }
+            StringBuilder sbState = new StringBuilder();
+            sbState.append("Player list: ").append(playerList).append("\n");
+            sbState.append("You are " + p.name + ".\n\n"
+                    + "Current deck : \n" + theMind.getPlayerDeck(p.id - 1).toString()
+                    + "Stack (with last played card)\n" + theMind.getTopOfStack());
+            if (lastPlay != null) {
+                sbState.append("played by ").append(lastPlay.name).append(".");
+            }
+            String encoded = Base64.getEncoder()
+                    .encodeToString(sbState.toString().getBytes(StandardCharsets.UTF_8));
 
+            String msg = ServerCommand.GAME_STATE + " " + encoded;
             try {
                 BufferedWriter out = new BufferedWriter(
                         new OutputStreamWriter(p.broadcastSocket.getOutputStream(), StandardCharsets.UTF_8));
@@ -336,6 +346,14 @@ public class Server implements Callable<Integer> {
                 System.out.println("[SERVER] Failed to send game state to " + p.name + ": " + e);
             }
         }
+    }
+
+    private void broadcastVictory() {
+        // TODO
+    }
+
+    private void broadcastDefeat() {
+        // TODO
     }
 
     // Check if enough players are present and all are ready; if so, start round 0.
