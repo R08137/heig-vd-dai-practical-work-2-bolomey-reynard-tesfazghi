@@ -42,7 +42,7 @@ public class ClientUI implements AutoCloseable {
     }
 
     /**
-     * Main TUI loop (runs in current thread).
+     * Main UI loop (runs in current thread).
      * Calls onCommand every time user presses ENTER with a non-empty line.
      */
     public void run(Consumer<String> onCommand) throws IOException {

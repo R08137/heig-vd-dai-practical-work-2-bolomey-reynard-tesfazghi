@@ -120,7 +120,7 @@ public class Client implements Callable<Integer> {
     }
 
 
-    private void handleServerResponse(String serverResponse, ClientUI tui, Socket socket) {
+    private void handleServerResponse(String serverResponse, ClientUI tui, Socket socket) throws IOException {
         if (serverResponse == null) {
             tui.updateServerText("[ERROR] Distant connection closed unexpectedly.");
             try {
@@ -141,7 +141,7 @@ public class Client implements Callable<Integer> {
         switch (message) {
             case NAME_VALIDATED -> {
                 String playerName = serverResponseParts.length > 1 ? serverResponseParts[1] : "";
-                tui.updateServerText("[INFO] Welcome " + playerName + ". Please ready yourself.");
+                tui.updateServerText("[INFO] Welcome " + playerName + ".");
             }
             case STATUS_UPDATE_READY -> {
                 tui.updateServerText("[INFO] Successfully readied.");
@@ -156,14 +156,27 @@ public class Client implements Callable<Integer> {
                 String playedCard = serverResponseParts.length > 1 ? serverResponseParts[1] : "?";
                 tui.updateServerText("[INFO] Successfully played card " + playedCard);
             }
+
+            case RESET_ISSUED -> {
+                tui.updateServerText("[INFO] Successfully voted for reset.");
+            }
             case WARNING_GAME_NOT_STARTED -> {
                 tui.updateServerText("[WARNING] Game not started yet. Wait for everyone to get ready.");
+            }
+            case WARNING_NAME_MID_SESSION -> {
+                tui.updateServerText("[WARNING] Cannot change name while game is in session!");
             }
             case WARNING_NAME_WITH_READY -> {
                 tui.updateServerText("[WARNING] Please unready yourself before renaming.");
             }
             case WARNING_NAME_TAKEN -> {
                 tui.updateServerText("[WARNING] Name is already taken. Please choose another.");
+            }
+            case WARNING_ALREADY_READY -> {
+                tui.updateServerText("[WARNING] You already are readied!");
+            }
+            case WARNING_ALREADY_NOT_READY -> {
+                tui.updateServerText("[WARNING] You already are unreadied!");
             }
             case WARNING_COMMAND_INVALID -> {
                 tui.updateServerText("[WARNING] Invalid command.");
@@ -187,6 +200,10 @@ public class Client implements Callable<Integer> {
             case ERROR_FATAL -> {
                 tui.updateServerText("[ERROR] Server fatal error, Closing connection.");
                 try { socket.close(); } catch (IOException ignored) {}
+            }
+            case CLOSE_CONNECTION -> {
+                tui.updateServerText("[INFO] QUIT issued. Closing connection...");
+                tui.close();
             }
             default -> tui.updateServerText("Invalid/unknown command sent by server...");
         }
@@ -224,7 +241,7 @@ public class Client implements Callable<Integer> {
             case READY -> request = ClientCommand.READY + END_OF_LINE;
             case UNREADY -> request = ClientCommand.UNREADY + END_OF_LINE;
             case PLAY -> request = ClientCommand.PLAY + END_OF_LINE;
-            case NEXT_ROUND -> request = ClientCommand.NEXT_ROUND + END_OF_LINE;
+            case RESET -> request = ClientCommand.RESET + END_OF_LINE;
             case QUIT -> {
                 socket.close();
                 tui.updateServerText("[INFO] Connection closed.");
