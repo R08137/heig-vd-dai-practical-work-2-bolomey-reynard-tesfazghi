@@ -163,8 +163,8 @@ public class Client implements Callable<Integer> {
             case WARNING_GAME_NOT_STARTED -> {
                 tui.updateServerText("[WARNING] Cannot issue command while game not started.");
             }
-            case WARNING_NAME_MID_SESSION -> {
-                tui.updateServerText("[WARNING] Cannot change name while game is in session!");
+            case WARNING_GAME_IN_SESSION -> {
+                tui.updateServerText("[WARNING] Cannot issue command while game is in session!");
             }
             case WARNING_NAME_WITH_READY -> {
                 tui.updateServerText("[WARNING] Please unready yourself before renaming.");
@@ -195,6 +195,9 @@ public class Client implements Callable<Integer> {
             }
             case WARNING_RESET_NOT_AVAILABLE -> {
                 tui.updateServerText("[WARNING] Can't reset out of victory screen.");
+            }
+            case WARNING_DEFEAT_WAIT_FOR_COUNTDOWN -> {
+                tui.updateServerText("[WARNING] Currently returning to lobby. Wait for new session to issue commands.");
             }
             case ERROR_LOBBY_FULL -> {
                 tui.updateServerText("[ERROR] Lobby is full. Closing connection.");

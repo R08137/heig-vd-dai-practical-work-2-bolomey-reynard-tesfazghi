@@ -1,6 +1,5 @@
 package ch.heigvd.dai.commands;
 
-import java.awt.desktop.SystemSleepEvent;
 import java.io.*;
 import java.util.List;
 import java.util.Base64;
@@ -26,6 +25,7 @@ public class Server implements Callable<Integer> {
     private final AtomicInteger playerId = new AtomicInteger(1);
     private static boolean gameStarted = false; // tells if game is ongoing until round depleted or reset
     private boolean inPostVictoryPhase = false; // For broadcast and votes
+    private boolean inPostDefeatPhase = false;
     private int difficulty = 0;
     private Game theMind = null;
 
@@ -59,6 +59,7 @@ public class Server implements Callable<Integer> {
         theMind = null;
         gameStarted = false;
         inPostVictoryPhase = false;
+        inPostDefeatPhase = false;
         lastPlay = null;
         difficulty = 0;
         broadcastLobby();
@@ -86,7 +87,7 @@ public class Server implements Callable<Integer> {
         }
     }
 
-    private static final int LOBBY_RETURN_DELAY_SECONDS = 6;
+    private static final int LOBBY_RETURN_DELAY_SECONDS = 5;
     public static String END_OF_LINE = "\n";
 
     private static final int THREAD_POOL_SIZE = 22;
@@ -206,7 +207,11 @@ public class Server implements Callable<Integer> {
                 switch (command) {
                     case NAME -> { // "PlayerID" nickname server-side or client set
                         if (gameStarted) {
-                            sendLine(out, ServerCommand.WARNING_NAME_MID_SESSION);
+                            sendLine(out, ServerCommand.WARNING_GAME_IN_SESSION);
+                            continue;
+                        }
+                        if (inPostDefeatPhase) {
+                            sendLine(out, ServerCommand.WARNING_DEFEAT_WAIT_FOR_COUNTDOWN);
                             continue;
                         }
                         if (session.ready) {
@@ -225,6 +230,14 @@ public class Server implements Callable<Integer> {
                     }
 
                     case READY -> {
+                        if (gameStarted) {
+                            sendLine(out, ServerCommand.WARNING_GAME_IN_SESSION);
+                            continue;
+                        }
+                        if (inPostDefeatPhase) {
+                            sendLine(out, ServerCommand.WARNING_DEFEAT_WAIT_FOR_COUNTDOWN);
+                            continue;
+                        }
                         if (session.ready) {
                             sendLine(out, ServerCommand.WARNING_ALREADY_READY);
                             continue;
@@ -236,7 +249,7 @@ public class Server implements Callable<Integer> {
                         if (gameStarted) {
                             // In-game READY – you might not want to do anything here,
                             // but definitely do NOT show victory
-                            broadcastGameState(); // or nothing
+                            sendGameState(); // or nothing
                         } else if (inPostVictoryPhase) {
                             // After a victory: votes for next round
                             broadcastVictory();
@@ -251,6 +264,14 @@ public class Server implements Callable<Integer> {
 
 
                     case UNREADY -> {
+                        if (gameStarted) {
+                            sendLine(out, ServerCommand.WARNING_GAME_IN_SESSION);
+                            continue;
+                        }
+                        if (inPostDefeatPhase) {
+                            sendLine(out, ServerCommand.WARNING_DEFEAT_WAIT_FOR_COUNTDOWN);
+                            continue;
+                        }
                         if (!session.ready) {
                             sendLine(out, ServerCommand.WARNING_ALREADY_NOT_READY);
                             continue;
@@ -270,6 +291,10 @@ public class Server implements Callable<Integer> {
                             sendLine(out, ServerCommand.WARNING_GAME_NOT_STARTED);
                             continue;
                         }
+                        if (inPostDefeatPhase) {
+                            sendLine(out, ServerCommand.WARNING_DEFEAT_WAIT_FOR_COUNTDOWN);
+                            continue;
+                        }
                         if (theMind.isPlayerDeckEmpty(session.id - 1)) {
                             sendLine(out, ServerCommand.WARNING_DECK_EMPTY);
                             continue;
@@ -277,7 +302,8 @@ public class Server implements Callable<Integer> {
                         var playedCard = theMind.playLowestCardForPlayer(session.id - 1).getValue();
                         sendLine(out, ServerCommand.CARD_PLAYED + " " + playedCard);
                         lastPlay = session;
-                        if (validatePlay()) {broadcastGameState();};
+                        if (validatePlay()) {
+                            sendGameState();};
                     }
 
                     case RESET -> {
@@ -387,7 +413,7 @@ public class Server implements Callable<Integer> {
     }
 
     private void sendBroadcastLine(PlayerSession p, String msg) {
-        if (p.broadcastSocket == null) return; // session broadcast socket non existent
+        if (p.broadcastSocket == null) return; // session broadcast socket non-existent
         try {
             BufferedWriter out = new BufferedWriter(
                     new OutputStreamWriter(p.broadcastSocket.getOutputStream(), StandardCharsets.UTF_8));
@@ -399,12 +425,23 @@ public class Server implements Callable<Integer> {
         }
     }
 
+    private void broadcastInfoToAll(String text) {
+        String encoded = Base64.getEncoder()
+                .encodeToString(text.getBytes(StandardCharsets.UTF_8));
+        String msg = ServerCommand.GAME_STATE + " " + encoded;
+
+        for (PlayerSession p : players) {
+            sendBroadcastLine(p, msg);
+        }
+    }
+
+
 
     private void broadcastLobby() {
         // TODO
     }
 
-    private void broadcastGameState() {
+    private void sendGameState() {
         if (theMind == null) {
             return;
         }
@@ -451,7 +488,6 @@ public class Server implements Callable<Integer> {
     }
 
     private void executeVictory() {
-        gameStarted = false;
         inPostVictoryPhase = true;
 
         for (PlayerSession p : players) {
@@ -504,7 +540,12 @@ public class Server implements Callable<Integer> {
         if (resetCount > players.size() / 2) {
             inPostVictoryPhase = false;
             gameReset();
-            String msg = "Majority voted for reset. Returning to Lobby.";
+            StringBuilder sbState = new StringBuilder();
+            sbState.append("Majority voted for reset. Returning to Lobby.");
+            String encoded = Base64.getEncoder()
+                    .encodeToString(sbState.toString().getBytes(StandardCharsets.UTF_8));
+            String msg = ServerCommand.GAME_STATE + " " + encoded;
+
             for (PlayerSession p : players) {
                 sendBroadcastLine(p, msg);
             }
@@ -515,10 +556,13 @@ public class Server implements Callable<Integer> {
         if (!players.isEmpty() && readyCount == players.size()) {
             inPostVictoryPhase = false;
             difficulty += 1;
-            String msg = "Everyone ready for next round. Added difficulty of " + difficulty + " cards in deck.";
-            for (PlayerSession p : players) {
-                sendBroadcastLine(p, msg);
-            }
+            StringBuilder sbState = new StringBuilder();
+            sbState.append("Everyone ready for next round. Added difficulty of ")
+                    .append(difficulty)
+                    .append(" cards in deck.");
+
+            broadcastInfoToAll(sbState.toString());
+
             tryGameStartIfReady(difficulty);
         }
     }
@@ -527,9 +571,7 @@ public class Server implements Callable<Integer> {
 
 
     private void executeDefeat() {
-        gameStarted = false;
-        inPostVictoryPhase = false;
-
+        inPostDefeatPhase = true;
         broadcastDefeat();
         new Thread(this::runDefeatCountdown).start();
     }
@@ -562,16 +604,8 @@ public class Server implements Callable<Integer> {
             sbState.append(lastPlay.name).append(" has doomed us all...\n\n");
         }
 
-        String encoded = Base64.getEncoder()
-                .encodeToString(sbState.toString().getBytes(StandardCharsets.UTF_8));
-        String msg = ServerCommand.GAME_STATE + " " + encoded;
+        broadcastInfoToAll(sbState.toString());
 
-        for (PlayerSession p : players) {
-            if (p.broadcastSocket == null) {
-                continue; // player has no broadcast socket
-            }
-            sendBroadcastLine(p, msg);
-        }
     }
 
     private void broadcastDefeatCountdown(int secondsRemaining) {
@@ -584,13 +618,7 @@ public class Server implements Callable<Integer> {
                 .append(secondsRemaining)
                 .append(" seconds...");
 
-        String encoded = Base64.getEncoder()
-                .encodeToString(sbState.toString().getBytes(StandardCharsets.UTF_8));
-        String msg = ServerCommand.GAME_STATE + " " + encoded;
-
-        for (PlayerSession p : players) {
-            sendBroadcastLine(p, msg);
-        }
+        broadcastInfoToAll(sbState.toString());
     }
 
 
@@ -611,7 +639,7 @@ public class Server implements Callable<Integer> {
             gameStarted = true;
             System.out.println("[SERVER] Game started with " + players.size() + " players.");
 
-            broadcastGameState();
+            sendGameState();
 
         } catch (Exception e) {
             System.out.println("[SERVER] Failed to start Game: " + e);
