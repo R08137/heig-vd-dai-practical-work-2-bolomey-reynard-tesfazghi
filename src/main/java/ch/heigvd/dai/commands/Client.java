@@ -141,7 +141,7 @@ public class Client implements Callable<Integer> {
         switch (message) {
             case NAME_VALIDATED -> {
                 String playerName = serverResponseParts.length > 1 ? serverResponseParts[1] : "";
-                tui.updateServerText("[INFO] Welcome " + playerName + ".");
+                tui.updateServerText("[INFO] You are now " + playerName + ". Welcome.");
             }
             case STATUS_UPDATE_READY -> {
                 tui.updateServerText("[INFO] Successfully readied.");
@@ -202,15 +202,19 @@ public class Client implements Callable<Integer> {
             case ERROR_LOBBY_FULL -> {
                 tui.updateServerText("[ERROR] Lobby is full. Closing connection.");
                 try { socket.close(); } catch (IOException ignored) {}
+                tui.close();
             }
             case ERROR_FATAL -> {
-                tui.updateServerText("[ERROR] Server fatal error, Closing connection.");
+                tui.updateServerText("[ERROR] Server fatal error, closing connection.");
                 try { socket.close(); } catch (IOException ignored) {}
+                tui.close();
             }
             case CLOSE_CONNECTION -> {
                 tui.updateServerText("[INFO] QUIT issued. Closing connection...");
+                try { socket.close(); } catch (IOException ignored) {}
                 tui.close();
             }
+
             default -> tui.updateServerText("Invalid/unknown command sent by server...");
         }
     }
@@ -249,10 +253,9 @@ public class Client implements Callable<Integer> {
             case PLAY -> request = ClientCommand.PLAY + END_OF_LINE;
             case RESET -> request = ClientCommand.RESET + END_OF_LINE;
             case QUIT -> {
-                socket.close();
-                tui.updateServerText("[INFO] Connection closed.");
-                return;
+                request = ClientCommand.QUIT + END_OF_LINE;
             }
+
             case HELP -> {
                 // Show help in the TUI
                 tui.updateServerText("Usage: NAME, READY, UNREADY, PLAY, NEXT_ROUND, QUIT, HELP");
@@ -268,9 +271,13 @@ public class Client implements Callable<Integer> {
             String serverResponse = in.readLine();
             if (serverResponse == null) {
                 tui.updateServerText("[ERROR] Distant connection closed unexpectedly.");
-                socket.close();
+                try {
+                    socket.close();
+                } catch (IOException ignored) {}
+                tui.close();           // stop TUI, program will exit
                 return;
             }
+
 
             handleServerResponse(serverResponse, tui, socket);
         }

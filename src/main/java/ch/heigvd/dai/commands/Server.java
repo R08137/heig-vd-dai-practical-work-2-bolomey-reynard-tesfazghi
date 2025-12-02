@@ -62,7 +62,7 @@ public class Server implements Callable<Integer> {
         inPostDefeatPhase = false;
         lastPlay = null;
         difficulty = 0;
-        broadcastLobby();
+        sendLobbyState();
     }
 
 
@@ -180,8 +180,7 @@ public class Server implements Callable<Integer> {
             }
 
             // notify client connection
-            broadcastLobby();
-
+            sendLobbyState();
             String line;
             while ((line = in.readLine()) != null) {
 
@@ -226,11 +225,11 @@ public class Server implements Callable<Integer> {
                         session.name = arg;
                         sendLine(out, ServerCommand.NAME_VALIDATED + " " + arg);
                         System.out.println("[SERVER] Player" + session.id + " registered as " + arg + ".");
-                        broadcastLobby();
+                        sendLobbyState();
                     }
 
                     case READY -> {
-                        if (gameStarted) {
+                        if (gameStarted && !inPostVictoryPhase) {
                             sendLine(out, ServerCommand.WARNING_GAME_IN_SESSION);
                             continue;
                         }
@@ -246,9 +245,7 @@ public class Server implements Callable<Integer> {
                         sendLine(out, ServerCommand.STATUS_UPDATE_READY + " Readied.");
                         System.out.println("[SERVER] Player" + session.id + "(" + session.name + ") ready.");
 
-                        if (gameStarted) {
-                            // In-game READY – you might not want to do anything here,
-                            // but definitely do NOT show victory
+                        if (gameStarted && !inPostVictoryPhase) {
                             sendGameState(); // or nothing
                         } else if (inPostVictoryPhase) {
                             // After a victory: votes for next round
@@ -256,15 +253,14 @@ public class Server implements Callable<Integer> {
                             handlePostVictoryVotes();
                         } else {
                             // Lobby before any game
-                            broadcastLobby();
+                            sendLobbyState();
                             tryGameStartIfReady(difficulty);
                         }
                     }
 
 
-
                     case UNREADY -> {
-                        if (gameStarted) {
+                        if (gameStarted && !inPostVictoryPhase) {
                             sendLine(out, ServerCommand.WARNING_GAME_IN_SESSION);
                             continue;
                         }
@@ -279,10 +275,10 @@ public class Server implements Callable<Integer> {
                         session.ready = false;
                         sendLine(out, ServerCommand.STATUS_UPDATE_UNREADY + " Unreadied.");
                         System.out.println("[SERVER] Player" + session.id + "(" + session.name + ") not ready.");
-                        if (gameStarted) {
+                        if (gameStarted && inPostVictoryPhase) {
                             broadcastVictory();
                         } else {
-                            broadcastLobby();
+                            sendLobbyState();
                         }
                     }
 
@@ -303,7 +299,9 @@ public class Server implements Callable<Integer> {
                         sendLine(out, ServerCommand.CARD_PLAYED + " " + playedCard);
                         lastPlay = session;
                         if (validatePlay()) {
-                            sendGameState();};
+                            sendGameState();
+                        }
+                        ;
                     }
 
                     case RESET -> {
@@ -319,7 +317,6 @@ public class Server implements Callable<Integer> {
                         broadcastVictory();
                         handlePostVictoryVotes();
                     }
-
 
 
                     case QUIT -> {
@@ -345,10 +342,14 @@ public class Server implements Callable<Integer> {
             if (session != null) {
                 players.remove(session);
                 System.out.println("[SERVER] Removed player " + session.id + ": " + session.name);
-                broadcastLobby();
+                // TODO manage quitting player
+                if (players.size() <= 1 && inPostDefeatPhase) {
+                    executeDefeat();
+                }
             }
         }
     }
+
 
     private void acceptBroadcastSockets(ServerSocket broadcastServerSocket) {
         while (true) {
@@ -393,6 +394,7 @@ public class Server implements Callable<Integer> {
                 target.broadcastSocket = socket;
                 System.out.println("[SERVER] Broadcast socket attached to player "
                         + target.id + " (" + target.name + ")");
+                sendLobbyState();
 
             } catch (IOException e) {
                 System.out.println("[SERVER] IO exception in broadcast acceptor: " + e);
@@ -436,10 +438,59 @@ public class Server implements Callable<Integer> {
     }
 
 
+    private void sendLobbyState() {
+        if (players.isEmpty()) {
+            return;
+        }
 
-    private void broadcastLobby() {
-        // TODO
+        // Compter les joueurs prêts
+        int totalPlayers = players.size();
+        findReadyVote();
+
+
+        // Message personnalisé pour chaque joueur
+        for (PlayerSession target : players) {
+            if (target.broadcastSocket == null) {
+                continue; // pas de socket de broadcast
+            }
+
+            StringBuilder sbState = new StringBuilder();
+            sbState.append("=== Lobby ===\n")
+                    .append("Players connected: ")
+                    .append(totalPlayers)
+                    .append("\n")
+                    .append("Players ready: ")
+                    .append(foundReady)
+                    .append(" / ")
+                    .append(totalPlayers)
+                    .append("\n\n");
+
+            sbState.append("You are ")
+                    .append(target.name)
+                    .append(".\n\n");
+
+            sbState.append("Player list:\n");
+
+            for (PlayerSession p : players) {
+                sbState.append(" - ")
+                        .append(p.name);
+                if (p == target) {
+                    sbState.append(" (you)");
+                }
+                if (p.ready) {
+                    sbState.append(" [READY]");
+                }
+                sbState.append("\n");
+            }
+
+            String encoded = Base64.getEncoder()
+                    .encodeToString(sbState.toString().getBytes(StandardCharsets.UTF_8));
+            String msg = ServerCommand.GAME_STATE + " " + encoded;
+
+            sendBroadcastLine(target, msg);
+        }
     }
+
 
     private void sendGameState() {
         if (theMind == null) {
@@ -537,7 +588,7 @@ public class Server implements Callable<Integer> {
         }
 
         // Majority reset?
-        if (resetCount > players.size() / 2) {
+        if (resetCount * 2 > players.size()) {
             inPostVictoryPhase = false;
             gameReset();
             StringBuilder sbState = new StringBuilder();
@@ -568,8 +619,6 @@ public class Server implements Callable<Integer> {
     }
 
 
-
-
     private void executeDefeat() {
         inPostDefeatPhase = true;
         broadcastDefeat();
@@ -596,10 +645,9 @@ public class Server implements Callable<Integer> {
     }
 
 
-
     private void broadcastDefeat() {
         StringBuilder sbState = new StringBuilder();
-        sbState.append("Defeat has been achieved...!\n");
+        sbState.append("Defeat!\n");
         if (lastPlay != null) {
             sbState.append(lastPlay.name).append(" has doomed us all...\n\n");
         }
@@ -610,9 +658,11 @@ public class Server implements Callable<Integer> {
 
     private void broadcastDefeatCountdown(int secondsRemaining) {
         StringBuilder sbState = new StringBuilder();
-        sbState.append("Defeat has been achieved...!\n");
+        sbState.append("Defeat!\n");
         if (lastPlay != null) {
             sbState.append(lastPlay.name).append(" has doomed us all...\n");
+        } else {
+            sbState.append("Not enough players to keep on playing...\n");
         }
         sbState.append("Returning to lobby in ")
                 .append(secondsRemaining)
@@ -620,8 +670,6 @@ public class Server implements Callable<Integer> {
 
         broadcastInfoToAll(sbState.toString());
     }
-
-
 
 
     // Check if enough players are present and all are ready; if so, start round 0.
