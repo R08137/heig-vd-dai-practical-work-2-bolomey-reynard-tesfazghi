@@ -64,16 +64,22 @@ public class Server implements Callable<Integer> {
 
     private static int foundReset;
     private static int foundReady;
+
     private void findResetVote() {
         foundReset = 0;
         for (PlayerSession p : players) {
-            if (p.reset) {foundReset+=1;}
+            if (p.reset) {
+                foundReset += 1;
+            }
         }
     }
+
     private void findReadyVote() {
         foundReady = 0;
         for (PlayerSession p : players) {
-            if (p.ready) {foundReady+=1;}
+            if (p.ready) {
+                foundReady += 1;
+            }
         }
     }
 
@@ -358,6 +364,20 @@ public class Server implements Callable<Integer> {
         sendLine(out, msg.toString());
     }
 
+    private void sendBroadcastLine(PlayerSession p, String msg) {
+        if (p.broadcastSocket == null) return; // session broadcast socket non existent
+        try {
+            BufferedWriter out = new BufferedWriter(
+                    new OutputStreamWriter(p.broadcastSocket.getOutputStream(), StandardCharsets.UTF_8));
+            out.write(msg);
+            out.write(END_OF_LINE);
+            out.flush();
+        } catch (IOException e) {
+            System.out.println("[SERVER] Failed to send message to " + p.name + ": " + e);
+        }
+    }
+
+
     private void broadcastLobby() {
         // TODO
     }
@@ -389,15 +409,7 @@ public class Server implements Callable<Integer> {
 
             String msg = ServerCommand.GAME_STATE + " " + encoded;
 
-            try {
-                BufferedWriter out = new BufferedWriter(
-                        new OutputStreamWriter(p.broadcastSocket.getOutputStream(), StandardCharsets.UTF_8));
-                out.write(msg);
-                out.write(END_OF_LINE);
-                out.flush();
-            } catch (IOException e) {
-                System.out.println("[SERVER] Failed to send game state to " + p.name + ": " + e);
-            }
+            sendBroadcastLine(p, msg);
         }
     }
 
@@ -419,46 +431,29 @@ public class Server implements Callable<Integer> {
             p.ready = false;
         }
         broadcastVictory();
-        while (theMind == null || gameStarted == true) {
-            while (gameStarted) { // Vote reset
-                findResetVote();
-                findReadyVote();
-                if (foundReset > players.size() / 2) {
-                    gameReset();
-                    String msg = "Majority voted for reset. Returning to Lobby";
-                    if (theMind != null) {
-                        theMind = null;
-                    }
-                    for (PlayerSession p : players) {
-                        try {
-                            BufferedWriter out = new BufferedWriter(
-                                    new OutputStreamWriter(p.broadcastSocket.getOutputStream(), StandardCharsets.UTF_8));
-                            out.write(msg);
-                            out.write(END_OF_LINE);
-                            out.flush();
-                        } catch (IOException e) {
-                            System.out.println("[SERVER] Failed to send reset message to " + p.name + ": " + e);
-                        }
-                    }
-                } else if (foundReady == players.size()) {
-                    difficulty += 1;
-                    String msg = "Everyone ready for next round. Added difficulty of " +  difficulty + " cards in deck";
-                    for (PlayerSession p : players) {
-                        try {
-                            BufferedWriter out = new BufferedWriter(
-                                    new OutputStreamWriter(p.broadcastSocket.getOutputStream(), StandardCharsets.UTF_8));
-                            out.write(msg);
-                            out.write(END_OF_LINE);
-                            out.flush();
-                        } catch (IOException e) {
-                            System.out.println("[SERVER] Failed to send next round message to " + p.name + ": " + e);
-                        }
-                    }
-                    tryGameStartIfReady(difficulty);
+        while (gameStarted) { // Vote reset
+            findResetVote();
+            findReadyVote();
+            if (foundReset > players.size() / 2) {
+                gameReset();
+                String msg = "Majority voted for reset. Returning to Lobby";
+                if (theMind != null) {
+                    theMind = null;
                 }
+                for (PlayerSession p : players) {
+                    sendBroadcastLine(p, msg);
+                }
+            } else if (foundReady == players.size()) {
+                difficulty += 1;
+                String msg = "Everyone ready for next round. Added difficulty of " + difficulty + " cards in deck";
+                for (PlayerSession p : players) {
+                    sendBroadcastLine(p, msg);
+                }
+                tryGameStartIfReady(difficulty);
             }
         }
     }
+
 
     private void executeDefeat() {
         broadcastDefeat();
@@ -486,15 +481,7 @@ public class Server implements Callable<Integer> {
 
             String msg = ServerCommand.GAME_STATE + " " + encoded;
 
-            try {
-                BufferedWriter out = new BufferedWriter(
-                        new OutputStreamWriter(p.broadcastSocket.getOutputStream(), StandardCharsets.UTF_8));
-                out.write(msg);
-                out.write(END_OF_LINE);
-                out.flush();
-            } catch (IOException e) {
-                System.out.println("[SERVER] Failed to victory message to " + p.name + ": " + e);
-            }
+            sendBroadcastLine(p, msg);
         }
     }
 
@@ -510,15 +497,7 @@ public class Server implements Callable<Integer> {
                     .append(" has doomed us all...");
             String msg = ServerCommand.GAME_STATE + sbState.toString();
 
-            try {
-                BufferedWriter out = new BufferedWriter(
-                        new OutputStreamWriter(p.broadcastSocket.getOutputStream(), StandardCharsets.UTF_8));
-                out.write(msg);
-                out.write(END_OF_LINE);
-                out.flush();
-            } catch (IOException e) {
-                System.out.println("[SERVER] Failed to victory message to " + p.name + ": " + e);
-            }
+            sendBroadcastLine(p, msg);
         }
     }
 
