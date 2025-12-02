@@ -6,7 +6,7 @@ enum ClientCommand {
     READY,
     UNREADY,
     PLAY,
-    NEXT_ROUND,
+    RESET,
     QUIT,
     HELP
 }
