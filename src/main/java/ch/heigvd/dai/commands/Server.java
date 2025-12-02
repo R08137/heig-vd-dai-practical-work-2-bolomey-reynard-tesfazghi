@@ -1,5 +1,6 @@
 package ch.heigvd.dai.commands;
 
+import java.awt.desktop.SystemSleepEvent;
 import java.io.*;
 import java.util.List;
 import java.util.Base64;
@@ -23,8 +24,9 @@ public class Server implements Callable<Integer> {
     // global lobby
     private static final List<PlayerSession> players = new CopyOnWriteArrayList<>();
     private final AtomicInteger playerId = new AtomicInteger(1);
-    private static boolean gameStarted = false;
-    Game theMind = null;
+    private static boolean gameStarted = false; // tells if game is ongoing until round depleted or reset
+    private int difficulty = 0;
+    private Game theMind = null;
 
     // per-player connection/session to identify them for game instance and info
     private static class PlayerSession {
@@ -34,18 +36,46 @@ public class Server implements Callable<Integer> {
 
         String name;
         boolean ready;
+        boolean reset;
 
         PlayerSession(int id, Socket commandSocket, String name) {
             this.id = id;
             this.commandSocket = commandSocket;
             this.name = name;
             this.ready = false;
+            this.reset = false;
             this.broadcastSocket = null; // will be attached later
         }
     }
 
     private PlayerSession lastPlay = null;
 
+    private void gameReset() {
+        for (PlayerSession p : players) {
+            p.ready = false;
+            p.reset = false;
+        }
+        theMind = null;
+        gameStarted = false;
+        lastPlay = null;
+        difficulty = 0;
+        broadcastLobby();
+    }
+
+    private static int foundReset;
+    private static int foundReady;
+    private void findResetVote() {
+        foundReset = 0;
+        for (PlayerSession p : players) {
+            if (p.reset) {foundReset+=1;}
+        }
+    }
+    private void findReadyVote() {
+        foundReady = 0;
+        for (PlayerSession p : players) {
+            if (p.ready) {foundReady+=1;}
+        }
+    }
 
     public static String END_OF_LINE = "\n";
 
@@ -165,6 +195,10 @@ public class Server implements Callable<Integer> {
 
                 switch (command) {
                     case NAME -> { // "PlayerID" nickname server-side or client set
+                        if (gameStarted) {
+                            sendLine(out, ServerCommand.WARNING_NAME_MID_SESSION);
+                            continue;
+                        }
                         if (session.ready) {
                             sendLine(out, ServerCommand.WARNING_NAME_WITH_READY);
                             continue;
@@ -181,22 +215,38 @@ public class Server implements Callable<Integer> {
                     }
 
                     case READY -> {
+                        if (session.ready) {
+                            sendLine(out, ServerCommand.WARNING_ALREADY_READY);
+                            continue;
+                        }
                         session.ready = true;
                         sendLine(out, ServerCommand.STATUS_UPDATE_READY + " Readied.");
                         System.out.println("[SERVER] Player" + session.id + "(" + session.name + ") ready.");
-                        broadcastLobby();
-                        tryGameStartIfReady();
+                        if (gameStarted) {
+                            broadcastVictory();
+                        } else {
+                            broadcastLobby();
+                            tryGameStartIfReady(difficulty);
+                        }
                     }
 
                     case UNREADY -> {
+                        if (!session.ready) {
+                            sendLine(out, ServerCommand.WARNING_ALREADY_NOT_READY);
+                            continue;
+                        }
                         session.ready = false;
                         sendLine(out, ServerCommand.STATUS_UPDATE_UNREADY + " Unreadied.");
                         System.out.println("[SERVER] Player" + session.id + "(" + session.name + ") not ready.");
-                        broadcastLobby();
+                        if (gameStarted) {
+                            broadcastVictory();
+                        } else {
+                            broadcastLobby();
+                        }
                     }
 
                     case PLAY -> {
-                        if (!gameStarted) {
+                        if (!gameStarted || theMind == null) {
                             sendLine(out, ServerCommand.WARNING_GAME_NOT_STARTED);
                             continue;
                         }
@@ -207,19 +257,20 @@ public class Server implements Callable<Integer> {
                         var playedCard = theMind.playLowestCardForPlayer(session.id - 1).getValue();
                         sendLine(out, ServerCommand.CARD_PLAYED + " " + playedCard);
                         lastPlay = session;
-                        theMind.validatePlayedSequence();
+                        validatePlay();
                         broadcastGameState();
                     }
 
-                    case NEXT_ROUND -> {
-                        // TODO: if current round was VICTORY and next round is possible,
-                        //       advance round in The Mind instance and broadcast new state
-                        sendLine(out, ServerCommand.PLACEHOLDER + " next_round_requested");
+                    case RESET -> {
+                        session.reset = true;
+                        sendLine(out, ServerCommand.RESET_ISSUED);
+                        System.out.println("[SERVER] Player" + session.id + " voted for reset.");
+                        broadcastVictory();
                     }
 
                     case QUIT -> {
-                        sendLine(out, ServerCommand.PLACEHOLDER + " bye");
-                        System.out.println("[Server] Client " + session.name + " requested quit");
+                        sendLine(out, ServerCommand.CLOSE_CONNECTION);
+                        System.out.println("[Server] Client " + session.name + " requested quit. Closing connection.");
                         return; // cleanup in finally
                     }
 
@@ -244,6 +295,7 @@ public class Server implements Callable<Integer> {
             }
         }
     }
+
     private void acceptBroadcastSockets(ServerSocket broadcastServerSocket) {
         while (true) {
             try {
@@ -336,6 +388,7 @@ public class Server implements Callable<Integer> {
                     .encodeToString(sbState.toString().getBytes(StandardCharsets.UTF_8));
 
             String msg = ServerCommand.GAME_STATE + " " + encoded;
+
             try {
                 BufferedWriter out = new BufferedWriter(
                         new OutputStreamWriter(p.broadcastSocket.getOutputStream(), StandardCharsets.UTF_8));
@@ -348,28 +401,139 @@ public class Server implements Callable<Integer> {
         }
     }
 
+    private void validatePlay() {
+        boolean isPlayedCardValid = theMind.validatePlayedSequence();
+        boolean isGameFinished = theMind.isFinished();
+
+        if (isPlayedCardValid && isGameFinished) { // Victory conditions are met!
+            executeVictory();
+        } else if (isPlayedCardValid) {
+            return; // Game continues as is.
+        } else { // Played card is invalid. Players are all doomed
+            executeDefeat();
+        }
+    }
+
+    private void executeVictory() {
+        for (PlayerSession p : players) {
+            p.ready = false;
+        }
+        broadcastVictory();
+        while (theMind == null || gameStarted == true) {
+            while (gameStarted) { // Vote reset
+                findResetVote();
+                findReadyVote();
+                if (foundReset > players.size() / 2) {
+                    gameReset();
+                    String msg = "Majority voted for reset. Returning to Lobby";
+                    if (theMind != null) {
+                        theMind = null;
+                    }
+                    for (PlayerSession p : players) {
+                        try {
+                            BufferedWriter out = new BufferedWriter(
+                                    new OutputStreamWriter(p.broadcastSocket.getOutputStream(), StandardCharsets.UTF_8));
+                            out.write(msg);
+                            out.write(END_OF_LINE);
+                            out.flush();
+                        } catch (IOException e) {
+                            System.out.println("[SERVER] Failed to send reset message to " + p.name + ": " + e);
+                        }
+                    }
+                } else if (foundReady == players.size()) {
+                    difficulty += 1;
+                    String msg = "Everyone ready for next round. Added difficulty of " +  difficulty + " cards in deck";
+                    for (PlayerSession p : players) {
+                        try {
+                            BufferedWriter out = new BufferedWriter(
+                                    new OutputStreamWriter(p.broadcastSocket.getOutputStream(), StandardCharsets.UTF_8));
+                            out.write(msg);
+                            out.write(END_OF_LINE);
+                            out.flush();
+                        } catch (IOException e) {
+                            System.out.println("[SERVER] Failed to send next round message to " + p.name + ": " + e);
+                        }
+                    }
+                    tryGameStartIfReady(difficulty);
+                }
+            }
+        }
+    }
+
+    private void executeDefeat() {
+        broadcastDefeat();
+        gameReset();
+    }
+
+
     private void broadcastVictory() {
-        // TODO
+        for (PlayerSession p : players) {
+            if (p.broadcastSocket == null) {
+                continue; // player without broadcast socket
+            }
+            findResetVote();
+            findReadyVote();
+            StringBuilder sbState = new StringBuilder();
+            sbState.append("Victory has been achieved !\n")
+                    .append("To proceed to next round (1 added card), issue READY to ready yourself.\n")
+                    .append("You can also issue RESET to vote to reset rounds and go back to main lobby.\n\n")
+                    .append(foundReset)
+                    .append(" of ").append(players.size()).append("voted for reset.\n")
+                    .append(foundReady).append(" players ready.");
+
+            String encoded = Base64.getEncoder()
+                    .encodeToString(sbState.toString().getBytes(StandardCharsets.UTF_8));
+
+            String msg = ServerCommand.GAME_STATE + " " + encoded;
+
+            try {
+                BufferedWriter out = new BufferedWriter(
+                        new OutputStreamWriter(p.broadcastSocket.getOutputStream(), StandardCharsets.UTF_8));
+                out.write(msg);
+                out.write(END_OF_LINE);
+                out.flush();
+            } catch (IOException e) {
+                System.out.println("[SERVER] Failed to victory message to " + p.name + ": " + e);
+            }
+        }
     }
 
     private void broadcastDefeat() {
-        // TODO
+
+        for (PlayerSession p : players) {
+            if (p.broadcastSocket == null) {
+                continue; // player has no broadcast socket
+            }
+            StringBuilder sbState = new StringBuilder();
+            sbState.append("Defeat has been achieved... !\n")
+                    .append(lastPlay)
+                    .append(" has doomed us all...");
+            String msg = ServerCommand.GAME_STATE + sbState.toString();
+
+            try {
+                BufferedWriter out = new BufferedWriter(
+                        new OutputStreamWriter(p.broadcastSocket.getOutputStream(), StandardCharsets.UTF_8));
+                out.write(msg);
+                out.write(END_OF_LINE);
+                out.flush();
+            } catch (IOException e) {
+                System.out.println("[SERVER] Failed to victory message to " + p.name + ": " + e);
+            }
+        }
     }
 
     // Check if enough players are present and all are ready; if so, start round 0.
-    private void tryGameStartIfReady() {
+    private void tryGameStartIfReady(int difficulty) {
         if (players.isEmpty() || players.size() <= 1) {
             return;
         }
-
-        for (PlayerSession p : players) {
-            if (!p.ready) {
-                return; // someone not ready yet
-            }
+        findReadyVote();
+        if (foundReady != players.size()) {
+            return;
         }
 
         try {
-            theMind = new Game(players.size(), 5);
+            theMind = new Game(players.size(), 5 + difficulty);
             gameStarted = true;
             System.out.println("[SERVER] Game started with " + players.size() + " players.");
 
