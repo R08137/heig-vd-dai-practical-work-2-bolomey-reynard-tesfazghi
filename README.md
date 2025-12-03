@@ -41,6 +41,7 @@ For more detail [wiki](https://github.com/reynardpaul/heig-vd-dai-practical-work
 
 ## Folder structure
 
+See the [folder structure](docs/‎folder_structure.md) documentation. We base it on the [Java TCP programming - Practical content template + Docker](https://github.com/heig-vd-dai-course/heig-vd-dai-course-java-tcp-programming-practical-content-template).
 
 ## Clone repository
 
@@ -167,6 +168,12 @@ Just run the client command multiple times, each in its own terminal:
   docker compose run --rm client 
   docker compose run --rm client
   docker compose run --rm client
+```
+Each will appear in the lobby as a separate player.
+
+### Stop the Server 
+```
+docker compose down server
 ```
 Each will appear in the lobby as a separate player.
 
