@@ -1,5 +1,11 @@
 package ch.heigvd.dai.commands;
 
+/**
+ * Enumeration of all commands that the server can send to a client.
+ * <p>
+ * These messages encode lobby state, game state, warnings, errors, and
+ * control signals (such as connection close).
+ */
 enum ServerCommand {
     ID_ASSIGN,
     NAME_VALIDATED,

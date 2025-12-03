@@ -18,6 +18,18 @@ import java.util.Deque;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 
+/**
+ * Text-based user interface for the client, implemented using Lanterna.
+ * <p>
+ * The UI displays:
+ * <ul>
+ *     <li>Lobby/game state in the top area</li>
+ *     <li>Recent server messages in the middle</li>
+ *     <li>User input at the bottom</li>
+ * </ul>
+ * It reads keystrokes directly from the terminal, collecting user input lines
+ * and invoking a callback when the user presses ENTER.
+ */
 public class ClientUI implements AutoCloseable {
 
     private final Screen screen;
@@ -26,6 +38,9 @@ public class ClientUI implements AutoCloseable {
     private volatile String inputText = "";
     private volatile boolean running = true;
 
+    /**
+     * Internal message record used to store colored server messages.
+     */
     private static class Msg {
         final String text;
         final TextColor color;
@@ -34,6 +49,11 @@ public class ClientUI implements AutoCloseable {
 
     private final Deque<Msg> serverMessages = new ArrayDeque<>();
 
+    /**
+     * Creates a new client UI, initializing the terminal screen.
+     *
+     * @throws IOException if the screen cannot be created or started
+     */
     public ClientUI() throws IOException {
         Terminal terminal = new DefaultTerminalFactory().createTerminal();
         this.screen = new TerminalScreen(terminal);
@@ -42,8 +62,14 @@ public class ClientUI implements AutoCloseable {
     }
 
     /**
-     * Main UI loop (runs in current thread).
-     * Calls onCommand every time user presses ENTER with a non-empty line.
+     * Main UI loop.
+     * <p>
+     * This method blocks until the UI is closed. It reads keyboard input, updates the
+     * screen, and calls {@code onCommand} whenever the user presses ENTER on a
+     * non-empty input line.
+     *
+     * @param onCommand callback invoked with each complete user command
+     * @throws IOException if reading input or refreshing the screen fails
      */
     public void run(Consumer<String> onCommand) throws IOException {
         redraw();
@@ -87,6 +113,11 @@ public class ClientUI implements AutoCloseable {
         }
     }
 
+    /**
+     * Updates the lobby/game text area with the given content and redraws the screen.
+     *
+     * @param text multiline text representation of the lobby or game state
+     */
     public void updateLobby(String text) {
         lobbyText = text;
         safeRedraw();
@@ -94,6 +125,12 @@ public class ClientUI implements AutoCloseable {
 
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("HH:mm:ss");
 
+    /**
+     * Adds a server message to the message buffer with timestamp and severity color,
+     * and redraws the screen.
+     *
+     * @param text the message text; messages starting with "[WARNING]" are colored yellow
+     */
     public void updateServerText(String text) {
         String ts = "[" + LocalTime.now().format(TS) + "] ";
 
@@ -110,8 +147,10 @@ public class ClientUI implements AutoCloseable {
         safeRedraw();
     }
 
-
-
+    /**
+     * Redraws the screen, swallowing any {@link IOException} and stopping the UI
+     * if redrawing fails.
+     */
     private void safeRedraw() {
         try {
             redraw();
@@ -121,6 +160,11 @@ public class ClientUI implements AutoCloseable {
         }
     }
 
+    /**
+     * Renders the UI layout: lobby, server messages, and input line.
+     *
+     * @throws IOException if screen operations fail
+     */
     private void redraw() throws IOException {
         synchronized (screen) {
             screen.clear();
@@ -177,6 +221,16 @@ public class ClientUI implements AutoCloseable {
         }
     }
 
+    /**
+     * Writes a multi-line text into a rectangular area of the terminal.
+     *
+     * @param g      graphics context
+     * @param x      starting column
+     * @param y      starting row
+     * @param width  maximum width of the area
+     * @param height maximum height (number of lines) of the area
+     * @param text   text to draw, possibly containing line breaks
+     */
     private void drawMultiline(TextGraphics g, int x, int y, int width, int height, String text) {
         String[] lines = text.split("\\R");
         for (int i = 0; i < height && i < lines.length; i++) {
@@ -185,6 +239,13 @@ public class ClientUI implements AutoCloseable {
         }
     }
 
+    /**
+     * Truncates a string to fit within a certain width, adding "..." at the end if needed.
+     *
+     * @param s        the string to truncate
+     * @param maxWidth maximum allowed length
+     * @return the truncated string if necessary, otherwise the original string
+     */
     private String truncate(String s, int maxWidth) {
         if (s.length() <= maxWidth) {
             return s;
@@ -195,6 +256,11 @@ public class ClientUI implements AutoCloseable {
         return s.substring(0, maxWidth - 3) + "...";
     }
 
+    /**
+     * Closes the UI and stops the underlying screen.
+     *
+     * @throws IOException if stopping the screen fails
+     */
     @Override
     public void close() throws IOException {
         running = false;
