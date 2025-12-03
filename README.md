@@ -36,6 +36,8 @@ For more detail [wiki](https://github.com/reynardpaul/heig-vd-dai-practical-work
 - [Java java 21.0.8-tem](https://adoptium.net/fr/temurin/releases?version=21)
 - [Maven 3.9.11](https://maven.apache.org/)
 - [picocli 4.7.6](https://picocli.info/)
+- [Docker](https://www.docker.com)
+- [Docker Compose](https://docs.docker.com/compose/)
 
 ## Folder structure
 
@@ -48,15 +50,125 @@ For more detail [wiki](https://github.com/reynardpaul/heig-vd-dai-practical-work
 ```
 
 
-## Compile cli
+## Compile cli (Local)
+
+Compile the project locally using the maven wrapper.
+
+```shell
+./mvnw clean package
+```
+
+## Run the cli  (Local)
+
+Run the CLI without any arguments:
+
+```sh
+java -jar target/practical-work-2-bolomey-reynard-tesfazghi-1.0-SNAPSHOT.jar
+```
+
+```text
+Missing required subcommand
+Usage: practical-work-2-bolomey-reynard-tesfazghi-1.0-SNAPSHOT.jar [-hV]
+       [COMMAND]
+A small game to experiment with TCP.
+  -h, --help      Show this help message and exit.
+  -V, --version   Print version information and exit.
+Commands:
+  client  Start the client part of the network game.
+  server  Start the server part of the network game
+```
+
+Start the server:
+
+```sh
+java -jar target/practical-work-2-bolomey-reynard-tesfazghi-1.0-SNAPSHOT.jar server -p 6433
+```
+
+Start the client:
+
+```sh
+java -jar target/practical-work-2-bolomey-reynard-tesfazghi-1.0-SNAPSHOT.jar client -H localhost -p 6433
+```
+
+## Running with Docker Compose
+
+```
+server  → Start the server part of the network game. 
+client  → Start the client part of the network game.
+```
+### Building the image
+```
+ docker compose buil
+```
+Expected output:
+```
+....
+ [+] Building 2/2                                                                                                                                                                                          
+ ✔ heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi-client  Built                                                                                                                              0.0s 
+ ✔ heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi-server  Built 
+```
+### Start the Server (Docker)
+```
+  docker compose up server
+```
+Expected output:
+```
+....
+tcp-server  | Starting server...
+tcp-server  | [SERVER] Listening on port 6433 (commands)
+tcp-server  | [SERVER] Listening on port 6434 (broadcasts)
+```
+
+### Start a Client (Docker)
+Open a second terminal and run:
+```
+  docker compose run --rm client
+```
+Expected output:
+```
+=== Lobby ===
+Players connected: 1
+Players ready: 0 / 1
+
+You are Player1.
+
+Player list:
+ - Player1 (you)
 
 
-## Run the cli
 
 
-### Test
 
 
+
+
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+[12:48:29] [INFO] Connected to server:6433
+[12:49:35] Usage: NAME, READY, UNREADY, PLAY, NEXT_ROUND, QUIT, HELP
+
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+> HELP
+```
+
+### Running Multiple Clients
+Just run the client command multiple times, each in its own terminal:
+```
+  docker compose run --rm client
+  docker compose run --rm client
+  docker compose run --rm client 
+  docker compose run --rm client
+  docker compose run --rm client
+```
+Each will appear in the lobby as a separate player.
 
 ## Contributing
 
