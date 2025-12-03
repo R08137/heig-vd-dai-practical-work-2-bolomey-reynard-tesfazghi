@@ -11,6 +11,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import ch.heigvd.dai.game.Game;
 import picocli.CommandLine;
@@ -37,6 +39,9 @@ public class Server implements Callable<Integer> {
     private boolean inPostDefeatPhase = false;
     private int difficulty = 0;
     private Game theMind = null;
+
+    private final Map<PlayerSession, Integer> playerIndexInGame = new ConcurrentHashMap<>();
+
 
     /**
      * Represents a player session on the server, including command and broadcast sockets
@@ -93,8 +98,12 @@ public class Server implements Callable<Integer> {
         inPostDefeatPhase = false;
         lastPlay = null;
         difficulty = 0;
+
+        playerIndexInGame.clear(); // <- add this
+
         sendLobbyState();
     }
+
 
     private static int foundReset;
     private static int foundReady;
@@ -142,6 +151,17 @@ public class Server implements Callable<Integer> {
     protected int port;
 
     /**
+     * Logs a message to stdout with a time-of-day prefix and [SERVER] tag.
+     *
+     * @param msg the message to log
+     */
+    private void log(String msg) {
+        String ts = java.time.LocalTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"));
+        System.out.println("[" + ts + "] [SERVER] " + msg);
+    }
+
+    /**
      * Entry point for the Picocli command.
      * <p>
      * Creates the command and broadcast server sockets, spawns a thread to handle
@@ -152,13 +172,13 @@ public class Server implements Callable<Integer> {
      */
     @Override
     public Integer call() {
-        System.out.println("Starting server...");
+        log("Starting server...");
 
         try (ServerSocket commandServerSocket = new ServerSocket(port);
              ServerSocket broadcastServerSocket = new ServerSocket(port + 1)) {
 
-            System.out.println("[SERVER] Listening on port " + port + " (commands)");
-            System.out.println("[SERVER] Listening on port " + (port + 1) + " (broadcasts)");
+            log("Listening on port " + port + " (commands)");
+            log("Listening on port " + (port + 1) + " (broadcasts)");
 
             // thread that accepts broadcast connections and binds them to PlayerSession.broadcastSocket
             Thread broadcastAcceptor = new Thread(() -> acceptBroadcastSockets(broadcastServerSocket));
@@ -171,12 +191,12 @@ public class Server implements Callable<Integer> {
                     Socket socket = commandServerSocket.accept();
                     executor.submit(() -> ClientHandler(socket));
                 } catch (IOException e) {
-                    System.out.println("[SERVER] IO exception on accept: " + e);
+                    log("IO exception on accept: " + e);
                     break;
                 }
             }
         } catch (IOException e) {
-            System.out.println("[SERVER] IO exception: " + e);
+            log("IO exception: " + e);
             return 1;
         } finally {
             executor.shutdown();
@@ -206,16 +226,15 @@ public class Server implements Callable<Integer> {
              Writer writer = new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8);
              BufferedWriter out = new BufferedWriter(writer)) {
 
-            System.out.println(
-                    "[SERVER] New client connected from "
-                            + socket.getInetAddress().getHostAddress()
-                            + ":"
-                            + socket.getPort());
+            log("New client connected from "
+                    + socket.getInetAddress().getHostAddress()
+                    + ":"
+                    + socket.getPort());
 
             // capacity check
             if (players.size() >= MAX_PLAYERS) {
                 sendLine(out, ServerCommand.ERROR_LOBBY_FULL + " lobby_full");
-                System.out.println("[SERVER] Lobby full. Closing client...");
+                log("Lobby full. Closing client...");
                 return;
             }
 
@@ -231,13 +250,13 @@ public class Server implements Callable<Integer> {
             // wait for ID_VALIDATE from client
             String ackLine = in.readLine();
             if (ackLine == null) {
-                System.out.println("[SERVER] Client disconnected before ID_VALIDATE");
+                log("Client disconnected before ID_VALIDATE");
                 players.remove(session);
                 return;
             }
             String[] ackParts = ackLine.trim().split("\\s+");
             if (!ackParts[0].equalsIgnoreCase("ID_VALIDATE")) {
-                System.out.println("[SERVER] Expected ID_VALIDATE, got: " + ackLine);
+                log("Expected ID_VALIDATE, got: " + ackLine);
                 players.remove(session);
                 return;
             }
@@ -287,7 +306,7 @@ public class Server implements Callable<Integer> {
                         }
                         session.name = arg;
                         sendLine(out, ServerCommand.NAME_VALIDATED + " " + arg);
-                        System.out.println("[SERVER] Player" + session.id + " registered as " + arg + ".");
+                        log("Player" + session.id + " registered as " + arg + ".");
                         sendLobbyState();
                     }
 
@@ -306,7 +325,7 @@ public class Server implements Callable<Integer> {
                         }
                         session.ready = true;
                         sendLine(out, ServerCommand.STATUS_UPDATE_READY + " Readied.");
-                        System.out.println("[SERVER] Player" + session.id + "(" + session.name + ") ready.");
+                        log("Player" + session.id + "(" + session.name + ") ready.");
 
                         if (gameStarted && !inPostVictoryPhase) {
                             sendGameState(); // or nothing
@@ -336,7 +355,7 @@ public class Server implements Callable<Integer> {
                         }
                         session.ready = false;
                         sendLine(out, ServerCommand.STATUS_UPDATE_UNREADY + " Unreadied.");
-                        System.out.println("[SERVER] Player" + session.id + "(" + session.name + ") not ready.");
+                        log("Player" + session.id + "(" + session.name + ") not ready.");
                         if (gameStarted && inPostVictoryPhase) {
                             broadcastVictory();
                         } else {
@@ -353,17 +372,23 @@ public class Server implements Callable<Integer> {
                             sendLine(out, ServerCommand.WARNING_DEFEAT_WAIT_FOR_COUNTDOWN);
                             continue;
                         }
-                        if (theMind.isPlayerDeckEmpty(session.id - 1)) {
+                        Integer gameIndex = playerIndexInGame.get(session);
+                        if (gameIndex == null) {
+                            // Session is not part of the current game (e.g., joined mid-round)
+                            sendLine(out, ServerCommand.WARNING_GAME_IN_SESSION);
+                            continue;
+                        }
+
+                        if (theMind.isPlayerDeckEmpty(gameIndex)) {
                             sendLine(out, ServerCommand.WARNING_DECK_EMPTY);
                             continue;
                         }
-                        var playedCard = theMind.playLowestCardForPlayer(session.id - 1).getValue();
+                        var playedCard = theMind.playLowestCardForPlayer(gameIndex).getValue();
                         sendLine(out, ServerCommand.CARD_PLAYED + " " + playedCard);
                         lastPlay = session;
                         if (validatePlay()) {
                             sendGameState();
                         }
-                        ;
                     }
 
                     case RESET -> {
@@ -374,7 +399,7 @@ public class Server implements Callable<Integer> {
 
                         session.reset = true;
                         sendLine(out, ServerCommand.RESET_ISSUED);
-                        System.out.println("[SERVER] Player" + session.id + " voted for reset.");
+                        log("Player" + session.id + " voted for reset.");
 
                         broadcastVictory();
                         handlePostVictoryVotes();
@@ -382,7 +407,7 @@ public class Server implements Callable<Integer> {
 
                     case QUIT -> {
                         sendLine(out, ServerCommand.CLOSE_CONNECTION);
-                        System.out.println("[Server] Client " + session.name + " requested quit. Closing connection.");
+                        log("Client " + session.name + " requested quit. Closing connection.");
                         return; // cleanup in finally
                     }
 
@@ -392,24 +417,30 @@ public class Server implements Callable<Integer> {
                     }
                 }
             }
-            System.out.println("[SERVER] Client disconnected: " + (session != null ? session.name : "unknown"));
+            log("Client disconnected: " + (session != null ? session.name : "unknown"));
         } catch (IOException e) {
-            System.out.println("[SERVER] IO exception in client handler: " + e);
+            log("IO exception in client handler: " + e);
         } catch (Exception e) {
-            System.out.println("[SERVER] Unexpected exception in client handler for player "
+            log("Unexpected exception in client handler for player "
                     + (session != null ? session.id + " (" + session.name + ")" : "unknown") + ": " + e);
             e.printStackTrace();
         } finally {
             if (session != null) {
                 players.remove(session);
-                System.out.println("[SERVER] Removed player " + session.id + ": " + session.name);
-                // TODO manage quitting player
-                if (players.size() <= 1 && inPostDefeatPhase) {
+                log("Removed player " + session.id + ": " + session.name);
+
+                // If a player leaves during an active game, that’s an instant defeat.
+                if (gameStarted && !inPostDefeatPhase && !inPostVictoryPhase) {
+                    log("Player left during active game, triggering instant defeat.");
                     executeDefeat();
+                } else {
+                    // if outside of an active game, just refresh the lobby state.
+                    sendLobbyState();
                 }
             }
         }
     }
+
 
     /**
      * Accepts broadcast socket connections and attaches them to the corresponding
@@ -458,12 +489,12 @@ public class Server implements Callable<Integer> {
                 }
 
                 target.broadcastSocket = socket;
-                System.out.println("[SERVER] Broadcast socket attached to player "
+                log("Broadcast socket attached to player "
                         + target.id + " (" + target.name + ")");
                 sendLobbyState();
 
             } catch (IOException e) {
-                System.out.println("[SERVER] IO exception in broadcast acceptor: " + e);
+                log("IO exception in broadcast acceptor: " + e);
                 break;
             }
         }
@@ -509,7 +540,7 @@ public class Server implements Callable<Integer> {
             out.write(END_OF_LINE);
             out.flush();
         } catch (IOException e) {
-            System.out.println("[SERVER] Failed to send message to " + p.name + ": " + e);
+            log("Failed to send message to " + p.name + ": " + e);
         }
     }
 
@@ -607,10 +638,17 @@ public class Server implements Callable<Integer> {
             if (p.broadcastSocket == null) {
                 continue; // player has not established their state socket yet
             }
+
+            Integer gameIndex = playerIndexInGame.get(p);
+            if (gameIndex == null) {
+                // This player is not part of the current round (e.g., joined mid-game)-> skip
+                continue;
+            }
+
             StringBuilder sbState = new StringBuilder();
             sbState.append("Player list: ").append(playerList).append("\n");
             sbState.append("You are " + p.name + ".\n\n"
-                    + "Current deck : \n" + theMind.getPlayerDeck(p.id - 1).toString()
+                    + "Current deck : \n" + theMind.getPlayerDeck(gameIndex).toString()
                     + "Card in play :\n" + theMind.getTopOfStack());
             if (lastPlay != null) {
                 sbState.append("played by ").append(lastPlay.name).append(".");
@@ -622,13 +660,14 @@ public class Server implements Callable<Integer> {
 
             sendBroadcastLine(p, msg);
         }
+
     }
 
     /**
      * Validates the last card play according to game rules and handles victory/defeat.
      *
      * @return {@code true} if the game continues after this play;
-     *         {@code false} if the game has ended (victory or defeat)
+     * {@code false} if the game has ended (victory or defeat)
      */
     private boolean validatePlay() { // returns true if game on and false if game stopped
         boolean isPlayedCardValid = theMind.validatePlayedSequence();
@@ -706,19 +745,10 @@ public class Server implements Callable<Integer> {
 
         // Majority reset?
         if (resetCount * 2 > players.size()) {
-            inPostVictoryPhase = false;
-            gameReset();
-            StringBuilder sbState = new StringBuilder();
-            sbState.append("Majority voted for reset. Returning to Lobby.");
-            String encoded = Base64.getEncoder()
-                    .encodeToString(sbState.toString().getBytes(StandardCharsets.UTF_8));
-            String msg = ServerCommand.GAME_STATE + " " + encoded;
-
-            for (PlayerSession p : players) {
-                sendBroadcastLine(p, msg);
-            }
+            executeMajorityResetWithCountdown();
             return;
         }
+
 
         // Everyone ready to continue?
         if (!players.isEmpty() && readyCount == players.size()) {
@@ -734,6 +764,50 @@ public class Server implements Callable<Integer> {
             tryGameStartIfReady(difficulty);
         }
     }
+
+    /**
+     * Executes a majority-reset sequence: shows a countdown then returns to lobby.
+     */
+    private void executeMajorityResetWithCountdown() {
+        inPostVictoryPhase = false;
+        new Thread(this::runMajorityResetCountdown).start();
+    }
+
+    /**
+     * Runs the majority-reset countdown, then resets the game/lobby.
+     */
+    private void runMajorityResetCountdown() {
+        int remaining = LOBBY_RETURN_DELAY_SECONDS;
+
+        while (remaining > 0) {
+            broadcastResetCountdown(remaining);
+            try {
+                Thread.sleep(1000); // 1 second
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return; // abort countdown if interrupted
+            }
+            remaining--;
+        }
+        // When countdown reaches 0, actually reset the game and return to lobby
+        gameReset();
+    }
+
+    /**
+     * Broadcasts the reset countdown to all players after a majority reset vote.
+     *
+     * @param secondsRemaining number of seconds left in the countdown
+     */
+    private void broadcastResetCountdown(int secondsRemaining) {
+        StringBuilder sbState = new StringBuilder();
+        sbState.append("Majority voted for reset.\n")
+                .append("Returning to lobby in ")
+                .append(secondsRemaining)
+                .append(" seconds...");
+
+        broadcastInfoToAll(sbState.toString());
+    }
+
 
     /**
      * Executes the defeat sequence: enters post-defeat phase, broadcasts defeat,
@@ -820,16 +894,42 @@ public class Server implements Callable<Integer> {
             return;
         }
 
+        int playerCount = players.size();
+        int cardsPerPlayer = 5 + difficulty;
+
+        // Round cap: cannot deal more than 100 cards total.
+        if (playerCount * cardsPerPlayer > 100) {
+            StringBuilder sbState = new StringBuilder();
+            sbState.append("Ultimate victory!\n")
+                    .append("No more rounds can be generated with ")
+                    .append(playerCount).append(" players and ")
+                    .append(cardsPerPlayer).append(" cards per player (deck has 100 cards).\n")
+                    .append("Returning to lobby...");
+
+            broadcastInfoToAll(sbState.toString());
+            log("Round cap reached (" + playerCount + " players, " + cardsPerPlayer
+                    + " cards per player). Returning to lobby.");
+            gameReset();
+            return;
+        }
+
         try {
-            theMind = new Game(players.size(), 5 + difficulty);
+            // Build mapping from PlayerSession to game index 0..N-1 to avoid incoherences
+            playerIndexInGame.clear();
+            int index = 0;
+            for (PlayerSession p : players) {
+                playerIndexInGame.put(p, index++);
+            }
+
+            theMind = new Game(playerCount, cardsPerPlayer);
             gameStarted = true;
-            System.out.println("[SERVER] Game started with " + players.size() + " players.");
+            log("Game started with " + playerCount + " players.");
 
             sendGameState();
 
         } catch (Exception e) {
-            System.out.println("[SERVER] Failed to start Game: " + e);
-            e.printStackTrace(); // TODO Notify all players
+            log("Failed to start Game: " + e);
+            e.printStackTrace();
         }
     }
 }

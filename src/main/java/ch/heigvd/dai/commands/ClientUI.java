@@ -198,6 +198,13 @@ public class ClientUI implements AutoCloseable {
             // Middle area: server response
             int row = topHeight + 1;
 
+            // permanent help line
+            String helpLine = "[COMMANDS] NAME | NAME <your name> | READY | UNREADY | PLAY | RESET | QUIT";
+            g.setForegroundColor(TextColor.ANSI.CYAN);
+            g.putString(0, row, truncate(helpLine, width));
+            row++;
+
+            //  rolling messages below it
             synchronized (serverMessages) {
                 for (Msg m : serverMessages) {
                     if (row >= topHeight + middleHeight) break;
@@ -205,7 +212,6 @@ public class ClientUI implements AutoCloseable {
                     g.setForegroundColor(m.color);
                     String line = truncate(m.text, width);
                     g.putString(0, row, line);
-
                     row++;
                 }
             }

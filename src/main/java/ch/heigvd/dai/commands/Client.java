@@ -37,6 +37,10 @@ public class Client implements Callable<Integer> {
     private static final Random RANDOM = new Random();
 
     /**
+     * Full string for available commands
+     */
+
+    /**
      * End-of-line sequence used for protocol messages.
      */
     public static String END_OF_LINE = "\n";
@@ -302,12 +306,6 @@ public class Client implements Callable<Integer> {
             case QUIT -> {
                 request = ClientCommand.QUIT + END_OF_LINE;
             }
-
-            case HELP -> {
-                // Show help in the TUI
-                tui.updateServerText("Usage: NAME, READY, UNREADY, PLAY, NEXT_ROUND, QUIT, HELP");
-                return;
-            }
         }
 
         if (request != null) {
@@ -381,17 +379,4 @@ public class Client implements Callable<Integer> {
         return adjective + noun + RANDOM.nextInt(100);
     }
 
-    /**
-     * Prints basic command usage information to standard output.
-     */
-    private static void help() {
-        System.out.println("Usage:");
-        System.out.println("  NAME [<your name>]  - Register your name. No specification generates a random name.");
-        System.out.println("  READY               - Mark yourself as ready in the lobby.");
-        System.out.println("  UNREADY             - Mark yourself as not ready.");
-        System.out.println("  PLAY                - Play your lowest card in hand.");
-        System.out.println("  NEXT_ROUND          - Request next round after victory.");
-        System.out.println("  QUIT                - Quit the game and close the connection.");
-        System.out.println("  HELP                - Display this help message.");
-    }
 }
