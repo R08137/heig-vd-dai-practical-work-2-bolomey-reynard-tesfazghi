@@ -7,9 +7,9 @@
 
 
 [![License](https://img.shields.io/github/license/heig-vd-dai-course/heig-vd-dai-course)](./LICENSE.md)
-[![Latest release](https://img.shields.io/github/v/release/robielTes/heig-vd-dai-practical-work-1-bolomey-reynard-tesfazghi?include_prereleases)](https://github.com/robielTes/heig-vd-dai-practical-work-1-bolomey-reynard-tesfazghi/releases)
-[![Issues](https://img.shields.io/github/issues/robielTes/heig-vd-dai-practical-work-1-bolomey-reynard-tesfazghi)](https://github.com/robielTes/heig-vd-dai-practical-work-1-bolomey-reynard-tesfazghi/issues)
-[![Pull requests](https://img.shields.io/github/issues-pr/robielTes/heig-vd-dai-practical-work-1-bolomey-reynard-tesfazghi)](https://github.com/robielTes/heig-vd-dai-practical-work-1-bolomey-reynard-tesfazghi/pulls)
+[![Latest release](https://img.shields.io/github/v/release/R08137/heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi?include_prereleases)](https://github.com/R08137/heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi/releases)
+[![Issues](https://img.shields.io/github/issues/R08137/heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi)](https://github.com/R08137/heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi/issues)
+[![Pull requests](https://img.shields.io/github/issues-pr/R08137/heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi)](https://github.com/R08137/heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi/pulls)
 
 <a id="readme-top"></a>
 # The Mind
