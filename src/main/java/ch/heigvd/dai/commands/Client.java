@@ -39,8 +39,6 @@ public class Client implements Callable<Integer> {
     /**
      * Full string for available commands
      */
-    private static final String HELP_TEXT =
-            "[INFO] Available commands: NAME | NAME <your name> | READY | UNREADY | PLAY | RESET | QUIT | HELP\n";
 
     /**
      * End-of-line sequence used for protocol messages.
@@ -122,7 +120,6 @@ public class Client implements Callable<Integer> {
             // Create TUI
             ClientUI tui = new ClientUI();
             tui.updateServerText("[INFO] Connected to " + host + ":" + port);
-            tui.updateServerText(HELP_TEXT);
             tui.updateLobby("Waiting for lobby state...");
 
             // State listener thread: push lobby/game state into TUI
@@ -309,11 +306,6 @@ public class Client implements Callable<Integer> {
             case QUIT -> {
                 request = ClientCommand.QUIT + END_OF_LINE;
             }
-            case HELP -> {
-                tui.updateServerText(HELP_TEXT);
-                return;
-            }
-
         }
 
         if (request != null) {

@@ -745,19 +745,10 @@ public class Server implements Callable<Integer> {
 
         // Majority reset?
         if (resetCount * 2 > players.size()) {
-            inPostVictoryPhase = false;
-            gameReset();
-            StringBuilder sbState = new StringBuilder();
-            sbState.append("Majority voted for reset. Returning to Lobby.");
-            String encoded = Base64.getEncoder()
-                    .encodeToString(sbState.toString().getBytes(StandardCharsets.UTF_8));
-            String msg = ServerCommand.GAME_STATE + " " + encoded;
-
-            for (PlayerSession p : players) {
-                sendBroadcastLine(p, msg);
-            }
+            executeMajorityResetWithCountdown();
             return;
         }
+
 
         // Everyone ready to continue?
         if (!players.isEmpty() && readyCount == players.size()) {
@@ -773,6 +764,50 @@ public class Server implements Callable<Integer> {
             tryGameStartIfReady(difficulty);
         }
     }
+
+    /**
+     * Executes a majority-reset sequence: shows a countdown then returns to lobby.
+     */
+    private void executeMajorityResetWithCountdown() {
+        inPostVictoryPhase = false;
+        new Thread(this::runMajorityResetCountdown).start();
+    }
+
+    /**
+     * Runs the majority-reset countdown, then resets the game/lobby.
+     */
+    private void runMajorityResetCountdown() {
+        int remaining = LOBBY_RETURN_DELAY_SECONDS;
+
+        while (remaining > 0) {
+            broadcastResetCountdown(remaining);
+            try {
+                Thread.sleep(1000); // 1 second
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return; // abort countdown if interrupted
+            }
+            remaining--;
+        }
+        // When countdown reaches 0, actually reset the game and return to lobby
+        gameReset();
+    }
+
+    /**
+     * Broadcasts the reset countdown to all players after a majority reset vote.
+     *
+     * @param secondsRemaining number of seconds left in the countdown
+     */
+    private void broadcastResetCountdown(int secondsRemaining) {
+        StringBuilder sbState = new StringBuilder();
+        sbState.append("Majority voted for reset.\n")
+                .append("Returning to lobby in ")
+                .append(secondsRemaining)
+                .append(" seconds...");
+
+        broadcastInfoToAll(sbState.toString());
+    }
+
 
     /**
      * Executes the defeat sequence: enters post-defeat phase, broadcasts defeat,
