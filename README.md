@@ -98,7 +98,7 @@ server  → Start the server part of the network game.
 client  → Start the client part of the network game.
 ```
 ### Building the image
-```
+```sh
  docker compose buil
 ```
 Expected output:
@@ -109,7 +109,7 @@ Expected output:
  ✔ heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi-server  Built 
 ```
 ### Start the Server (Docker)
-```
+```sh
   docker compose up server
 ```
 Expected output:
@@ -122,7 +122,7 @@ tcp-server  | [SERVER] Listening on port 6434 (broadcasts)
 
 ### Start a Client (Docker)
 Open a second terminal and run:
-```
+```sh
   docker compose run --rm client
 ```
 Expected output:
@@ -162,7 +162,7 @@ Player list:
 
 ### Running Multiple Clients
 Just run the client command multiple times, each in its own terminal:
-```
+```sh
   docker compose run --rm client
   docker compose run --rm client
   docker compose run --rm client 
@@ -172,10 +172,75 @@ Just run the client command multiple times, each in its own terminal:
 Each will appear in the lobby as a separate player.
 
 ### Stop the Server 
-```
+```sh
 docker compose down server
 ```
 Each will appear in the lobby as a separate player.
+
+## GitHub Container Registry (GHCR)
+
+### Build and publish the Docker image 
+
+* Log in to GitHub Container Registry
+
+Create a GitHub Personal Access Token (PAT) with `write:packages` and `read:packages`, then:
+
+```bash
+docker login ghcr.io -u YOUR_GITHUB_USERNAME 
+--password-stdin YOUR_GHCR_PAT
+```
+* Build the image From the root of the repository:
+```bash
+  docker build -t ghcr.io/YOUR_GITHUB_USERNAME/heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi:latest .
+```
+
+* Push the image
+```bash
+  docker push ghcr.io/YOUR_GITHUB_USERNAME/heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi:latest
+```
+After this, the image will be available at:
+```text
+ ghcr.io/YOUR_GITHUB_USERNAME/heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi:latest
+```
+
+## Run using Docker using only GHCR
+
+### Step 1 — Pull the image
+
+```bash
+docker pull ghcr.io/r08137/heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi:latest
+```
+
+### Step 2 — Create a Docker network
+
+
+```bash
+docker network create themind
+```
+### Step 3 — Start the server container
+```bash
+docker run --rm -it --name themind-server --network themind -p 6433:6433 -p 6434:6434  ghcr.io/r08137/heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi:latest   server -p 6433
+```
+
+If everything is correct you will see:
+```text
+Starting server...
+[SERVER] Listening on port 6433 (commands)
+[SERVER] Listening on port 6434 (broadcasts)
+```
+### Step 4 — Start a client in another terminal
+```bash
+docker run --rm -it --name themind-client-1 --network themind ghcr.io/r08137/heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi:latest client -H themind-server -p 6433
+```
+You will see something like:
+```text
+[CLIENT] Assigned id 1
+[INFO] Connected to themind-server:6433
+```
+### Step 5 — Start more clients
+```bash
+docker run --rm -it --name themind-client-2 --network themind ghcr.io/r08137/heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi:latest client -H themind-server -p 6433
+```
 
 ## Demo
 [![asciicast](./docs/The%20mind.png)](https://www.youtube.com/watch?v=r8ZZr05Lqew)
