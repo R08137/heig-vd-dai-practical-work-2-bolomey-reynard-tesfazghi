@@ -336,6 +336,9 @@ For invalid or out-of-context commands, the server responds on the **command con
 
     * `WARNING_NAME_TAKEN`
     * `WARNING_NAME_WITH_READY`
+
+* Readying-related issues:
+
     * `WARNING_ALREADY_READY`
     * `WARNING_ALREADY_NOT_READY`
 * Reset not allowed outside post-victory phase:
