@@ -15,12 +15,21 @@ import java.util.concurrent.atomic.AtomicInteger;
 import ch.heigvd.dai.game.Game;
 import picocli.CommandLine;
 
+/**
+ * Server command-line entry point for the Mind network game.
+ * <p>
+ * The server manages a global lobby of players, dispatches commands,
+ * maintains game state, and broadcasts lobby/game updates via a secondary
+ * socket connection for each player.
+ */
 @CommandLine.Command(name = "server", description = "Start the server part of the network game.")
 public class Server implements Callable<Integer> {
 
     private static final int MAX_PLAYERS = 10;
 
-    // global lobby
+    /**
+     * Global lobby of connected players.
+     */
     private static final List<PlayerSession> players = new CopyOnWriteArrayList<>();
     private final AtomicInteger playerId = new AtomicInteger(1);
     private static boolean gameStarted = false; // tells if game is ongoing until round depleted or reset
@@ -29,7 +38,10 @@ public class Server implements Callable<Integer> {
     private int difficulty = 0;
     private Game theMind = null;
 
-    // per-player connection/session to identify them for game instance and info
+    /**
+     * Represents a player session on the server, including command and broadcast sockets
+     * and lobby/game state flags.
+     */
     private static class PlayerSession {
         final int id;
         final Socket commandSocket;      // main command connection
@@ -39,6 +51,13 @@ public class Server implements Callable<Integer> {
         boolean ready;
         boolean reset;
 
+        /**
+         * Creates a new player session.
+         *
+         * @param id            unique identifier of the player
+         * @param commandSocket command socket used by the player
+         * @param name          initial player name
+         */
         PlayerSession(int id, Socket commandSocket, String name) {
             this.id = id;
             this.commandSocket = commandSocket;
@@ -51,6 +70,18 @@ public class Server implements Callable<Integer> {
 
     private PlayerSession lastPlay = null;
 
+    /**
+     * Resets the game state and lobby flags after a defeat or majority reset vote.
+     * <p>
+     * This method:
+     * <ul>
+     *     <li>Clears ready/reset flags for all players</li>
+     *     <li>Clears the current {@link Game} instance</li>
+     *     <li>Resets post-victory and post-defeat phases</li>
+     *     <li>Resets difficulty to zero</li>
+     *     <li>Broadcasts a fresh lobby state</li>
+     * </ul>
+     */
     private void gameReset() {
         for (PlayerSession p : players) {
             p.ready = false;
@@ -65,10 +96,12 @@ public class Server implements Callable<Integer> {
         sendLobbyState();
     }
 
-
     private static int foundReset;
     private static int foundReady;
 
+    /**
+     * Counts how many players have voted for reset and stores the result in {@code foundReset}.
+     */
     private void findResetVote() {
         foundReset = 0;
         for (PlayerSession p : players) {
@@ -78,6 +111,9 @@ public class Server implements Callable<Integer> {
         }
     }
 
+    /**
+     * Counts how many players are ready and stores the result in {@code foundReady}.
+     */
     private void findReadyVote() {
         foundReady = 0;
         for (PlayerSession p : players) {
@@ -88,17 +124,32 @@ public class Server implements Callable<Integer> {
     }
 
     private static final int LOBBY_RETURN_DELAY_SECONDS = 5;
+    /**
+     * End-of-line sequence used in protocol messages.
+     */
     public static String END_OF_LINE = "\n";
 
     private static final int THREAD_POOL_SIZE = 22;
     private final ExecutorService executor = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
 
+    /**
+     * Port to listen on for the command socket.
+     */
     @CommandLine.Option(
             names = {"-p", "--port"},
             description = "Port to use (default: ${DEFAULT-VALUE}).",
             defaultValue = "6433")
     protected int port;
 
+    /**
+     * Entry point for the Picocli command.
+     * <p>
+     * Creates the command and broadcast server sockets, spawns a thread to handle
+     * broadcast connections, and then accepts command connections, delegating them
+     * to {@link #ClientHandler(Socket)}.
+     *
+     * @return 0 on normal termination, non-zero on error
+     */
     @Override
     public Integer call() {
         System.out.println("Starting server...");
@@ -134,7 +185,19 @@ public class Server implements Callable<Integer> {
         return 0;
     }
 
-
+    /**
+     * Handles the lifecycle of a single client connection on the command socket.
+     * <p>
+     * This includes:
+     * <ul>
+     *     <li>Assigning a player ID and adding the session to the lobby</li>
+     *     <li>Processing incoming client commands</li>
+     *     <li>Updating lobby and game state</li>
+     *     <li>Removing the player on disconnect</li>
+     * </ul>
+     *
+     * @param socket the client socket to handle
+     */
     private void ClientHandler(Socket socket) {
         PlayerSession session = null;
         try (socket;
@@ -258,7 +321,6 @@ public class Server implements Callable<Integer> {
                         }
                     }
 
-
                     case UNREADY -> {
                         if (gameStarted && !inPostVictoryPhase) {
                             sendLine(out, ServerCommand.WARNING_GAME_IN_SESSION);
@@ -318,7 +380,6 @@ public class Server implements Callable<Integer> {
                         handlePostVictoryVotes();
                     }
 
-
                     case QUIT -> {
                         sendLine(out, ServerCommand.CLOSE_CONNECTION);
                         System.out.println("[Server] Client " + session.name + " requested quit. Closing connection.");
@@ -350,7 +411,12 @@ public class Server implements Callable<Integer> {
         }
     }
 
-
+    /**
+     * Accepts broadcast socket connections and attaches them to the corresponding
+     * {@link PlayerSession} based on the client id
+     *
+     * @param broadcastServerSocket server socket listening for broadcast connections
+     */
     private void acceptBroadcastSockets(ServerSocket broadcastServerSocket) {
         while (true) {
             try {
@@ -403,17 +469,37 @@ public class Server implements Callable<Integer> {
         }
     }
 
-
+    /**
+     * Sends a single line of text to a client via the given writer, followed by
+     * {@link #END_OF_LINE}, and flushes the writer.
+     *
+     * @param out  writer connected to a client socket
+     * @param line content to send
+     * @throws IOException if sending fails
+     */
     private void sendLine(BufferedWriter out, String line) throws IOException {
         out.write(line);
         out.write(END_OF_LINE);
         out.flush();
     }
 
+    /**
+     * Sends a single {@link ServerCommand} as a line of text to a client.
+     *
+     * @param out writer connected to a client socket
+     * @param msg server command to send
+     * @throws IOException if sending fails
+     */
     private void sendLine(BufferedWriter out, ServerCommand msg) throws IOException {
         sendLine(out, msg.toString());
     }
 
+    /**
+     * Sends a broadcast line to a specific player on their broadcast socket.
+     *
+     * @param p   the target player session
+     * @param msg the message to send
+     */
     private void sendBroadcastLine(PlayerSession p, String msg) {
         if (p.broadcastSocket == null) return; // session broadcast socket non-existent
         try {
@@ -427,6 +513,12 @@ public class Server implements Callable<Integer> {
         }
     }
 
+    /**
+     * Broadcasts a text message to all players as a {@link ServerCommand#GAME_STATE}
+     * payload, Base64-encoded.
+     *
+     * @param text the textual payload to broadcast
+     */
     private void broadcastInfoToAll(String text) {
         String encoded = Base64.getEncoder()
                 .encodeToString(text.getBytes(StandardCharsets.UTF_8));
@@ -437,21 +529,25 @@ public class Server implements Callable<Integer> {
         }
     }
 
-
+    /**
+     * Sends the current lobby state to all players who have a broadcast socket.
+     * <p>
+     * Each player receives a personalized summary including who they are,
+     * how many players are connected, how many are ready, and the full player list.
+     */
     private void sendLobbyState() {
         if (players.isEmpty()) {
             return;
         }
 
-        // Compter les joueurs prêts
+        // Count ready players
         int totalPlayers = players.size();
         findReadyVote();
 
-
-        // Message personnalisé pour chaque joueur
+        // Personalized message for each player
         for (PlayerSession target : players) {
             if (target.broadcastSocket == null) {
-                continue; // pas de socket de broadcast
+                continue; // no broadcast socket
             }
 
             StringBuilder sbState = new StringBuilder();
@@ -491,7 +587,12 @@ public class Server implements Callable<Integer> {
         }
     }
 
-
+    /**
+     * Sends the current game state to all players, including their own deck, the top card
+     * of the stack, and a list of player names.
+     * <p>
+     * Messages are sent as {@link ServerCommand#GAME_STATE} payloads encoded in Base64.
+     */
     private void sendGameState() {
         if (theMind == null) {
             return;
@@ -523,6 +624,12 @@ public class Server implements Callable<Integer> {
         }
     }
 
+    /**
+     * Validates the last card play according to game rules and handles victory/defeat.
+     *
+     * @return {@code true} if the game continues after this play;
+     *         {@code false} if the game has ended (victory or defeat)
+     */
     private boolean validatePlay() { // returns true if game on and false if game stopped
         boolean isPlayedCardValid = theMind.validatePlayedSequence();
         boolean isGameFinished = theMind.isFinished();
@@ -538,6 +645,10 @@ public class Server implements Callable<Integer> {
         }
     }
 
+    /**
+     * Executes the victory sequence: enters post-victory phase, clears ready/reset flags,
+     * and broadcasts the victory message and vote instructions.
+     */
     private void executeVictory() {
         inPostVictoryPhase = true;
 
@@ -549,7 +660,10 @@ public class Server implements Callable<Integer> {
         broadcastVictory();
     }
 
-
+    /**
+     * Broadcasts the current victory screen to all players, including reset/ready counts
+     * and voting instructions.
+     */
     private void broadcastVictory() {
         for (PlayerSession p : players) {
             if (p.broadcastSocket == null) {
@@ -574,7 +688,10 @@ public class Server implements Callable<Integer> {
         }
     }
 
-
+    /**
+     * Processes votes in the post-victory phase, checking whether a majority has voted
+     * for reset or whether all players are ready to continue at a higher difficulty.
+     */
     private void handlePostVictoryVotes() {
         if (!inPostVictoryPhase) {
             return; // only valid in post-victory state
@@ -618,14 +735,20 @@ public class Server implements Callable<Integer> {
         }
     }
 
-
+    /**
+     * Executes the defeat sequence: enters post-defeat phase, broadcasts defeat,
+     * and starts a countdown before returning to the lobby.
+     */
     private void executeDefeat() {
         inPostDefeatPhase = true;
         broadcastDefeat();
         new Thread(this::runDefeatCountdown).start();
     }
 
-
+    /**
+     * Runs the defeat countdown, periodically broadcasting the remaining time and
+     * then resetting the game to the lobby when the countdown reaches zero.
+     */
     private void runDefeatCountdown() {
         int remaining = LOBBY_RETURN_DELAY_SECONDS;
 
@@ -644,7 +767,10 @@ public class Server implements Callable<Integer> {
         gameReset();
     }
 
-
+    /**
+     * Broadcasts a defeat message to all players, indicating the player who caused
+     * the defeat if known.
+     */
     private void broadcastDefeat() {
         StringBuilder sbState = new StringBuilder();
         sbState.append("Defeat!\n");
@@ -656,6 +782,12 @@ public class Server implements Callable<Integer> {
 
     }
 
+    /**
+     * Broadcasts the defeat countdown to all players, indicating how many seconds
+     * remain before returning to the lobby.
+     *
+     * @param secondsRemaining number of seconds left in the countdown
+     */
     private void broadcastDefeatCountdown(int secondsRemaining) {
         StringBuilder sbState = new StringBuilder();
         sbState.append("Defeat!\n");
@@ -671,7 +803,13 @@ public class Server implements Callable<Integer> {
         broadcastInfoToAll(sbState.toString());
     }
 
-
+    /**
+     * Attempts to start a new game if all players are ready and there are enough players.
+     * <p>
+     * The number of cards per player is {@code 5 + difficulty}.
+     *
+     * @param difficulty current difficulty level, used to increase deck size
+     */
     // Check if enough players are present and all are ready; if so, start round 0.
     private void tryGameStartIfReady(int difficulty) {
         if (players.isEmpty() || players.size() <= 1) {
@@ -695,4 +833,3 @@ public class Server implements Callable<Integer> {
         }
     }
 }
-

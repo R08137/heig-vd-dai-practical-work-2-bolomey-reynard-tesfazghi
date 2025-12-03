@@ -8,37 +8,65 @@ import java.util.concurrent.Callable;
 
 import picocli.CommandLine;
 
+/**
+ * Client command-line entry point for the Mind network game.
+ * <p>
+ * This class connects to a remote server, performs the initial handshake
+ * to obtain a player id, opens a second socket for lobby/game state updates,
+ * and then runs a text-based UI to send user commands and display server
+ * responses.
+ */
 @CommandLine.Command(name = "client", description = "Start the client part of the network game.")
 public class Client implements Callable<Integer> {
 
+    // Enum for random name prefix
     private static final String[] ADJECTIVES = {
             "Brave", "Silent", "Happy", "Clever", "Swift",
             "Mighty", "Lucky", "Golden", "Wild", "Gentle",
             "Fierce", "Calm", "Bold", "Bright", "Rapid"
     };
 
+    // Enum for random name
     private static final String[] NOUNS = {
             "Tiger", "Wolf", "Eagle", "Lion", "Fox",
             "Bear", "Hawk", "Panther", "Shark", "Falcon",
             "Dragon", "Otter", "Raven", "Stag", "Cobra"
     };
 
+    // Random number for random name suffix
     private static final Random RANDOM = new Random();
 
+    /**
+     * End-of-line sequence used for protocol messages.
+     */
     public static String END_OF_LINE = "\n";
 
+    /**
+     * Server host to connect to.
+     */
     @CommandLine.Option(
             names = {"-H", "--host"},
             description = "Host to connect to.",
             required = true)
     protected String host;
 
+    /**
+     * Server port for the command socket.
+     */
     @CommandLine.Option(
             names = {"-p", "--port"},
             description = "Port to use (default: ${DEFAULT-VALUE}).",
             defaultValue = "6433")
     protected int port;
 
+    /**
+     * Entry point for the Picocli command.
+     * <p>
+     * Establishes the command and state sockets, performs handshake,
+     * starts the UI, and manages communication with the server.
+     *
+     * @return 0 on normal termination, non-zero on error
+     */
     @Override
     public Integer call() {
 
@@ -70,7 +98,7 @@ public class Client implements Callable<Integer> {
             }
 
             if (playerId < 0) {
-                System.out.println("[Client] No valid id from server. Aborting.");
+                System.out.println("[CLIENT] No valid id from server. Aborting.");
                 return 1;
             }
 
@@ -119,7 +147,15 @@ public class Client implements Callable<Integer> {
         return 0;
     }
 
-
+    /**
+     * Handles a single response line from the server on the command socket
+     * and updates the {@link ClientUI} accordingly.
+     *
+     * @param serverResponse the raw line received from the server; may be {@code null}
+     * @param tui            the client UI to update with messages
+     * @param socket         the command socket to close in case of fatal errors
+     * @throws IOException if closing the socket fails
+     */
     private void handleServerResponse(String serverResponse, ClientUI tui, Socket socket) throws IOException {
         if (serverResponse == null) {
             tui.updateServerText("[ERROR] Distant connection closed unexpectedly.");
@@ -219,6 +255,17 @@ public class Client implements Callable<Integer> {
         }
     }
 
+    /**
+     * Parses a user command entered in the UI, converts it into the appropriate
+     * protocol command, sends it to the server, and handles the immediate response.
+     *
+     * @param userInput the raw input line from the user
+     * @param out       writer to send commands to the server
+     * @param in        reader for responses from the server
+     * @param socket    command socket used to communicate with the server
+     * @param tui       UI to display errors or informational messages
+     * @throws IOException if sending or receiving data fails
+     */
     private void handleUserCommand(String userInput,
                                    BufferedWriter out,
                                    BufferedReader in,
@@ -278,11 +325,17 @@ public class Client implements Callable<Integer> {
                 return;
             }
 
-
             handleServerResponse(serverResponse, tui, socket);
         }
     }
 
+    /**
+     * Listens on the state socket for encoded game or lobby state updates and
+     * forwards them to the UI.
+     *
+     * @param stateIn reader connected to the server's broadcast socket
+     * @param tui     UI to receive state updates
+     */
     private void listenToGameState(BufferedReader stateIn, ClientUI tui) {
         try {
             String line;
@@ -316,20 +369,27 @@ public class Client implements Callable<Integer> {
         }
     }
 
-
-
+    /**
+     * Generates a random player name composed of an adjective, a noun,
+     * and a random integer suffix according to the enums at the start of the class.
+     *
+     * @return a randomly generated player name
+     */
     public static String RandomName() {
         String adjective = ADJECTIVES[RANDOM.nextInt(ADJECTIVES.length)];
         String noun = NOUNS[RANDOM.nextInt(NOUNS.length)];
         return adjective + noun + RANDOM.nextInt(100);
     }
 
-    private static void help() { // Mabye make a stategame static boolean and show different help message
+    /**
+     * Prints basic command usage information to standard output.
+     */
+    private static void help() {
         System.out.println("Usage:");
         System.out.println("  NAME [<your name>]  - Register your name. No specification generates a random name.");
         System.out.println("  READY               - Mark yourself as ready in the lobby.");
         System.out.println("  UNREADY             - Mark yourself as not ready.");
-        System.out.println("  PLAY <number>       - Play your lowest card in hand.");
+        System.out.println("  PLAY                - Play your lowest card in hand.");
         System.out.println("  NEXT_ROUND          - Request next round after victory.");
         System.out.println("  QUIT                - Quit the game and close the connection.");
         System.out.println("  HELP                - Display this help message.");
