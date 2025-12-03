@@ -5,6 +5,7 @@ services:
     command: ["server", "-p", "6433"]   #serveur
     ports:
       - "6433:6433"
+      - "6434:6434"   # broadcast port
     restart: unless-stopped
 
   client:
@@ -13,3 +14,5 @@ services:
     depends_on:
       - server
     command: ["client", "-H", "server", "-p", "6433"] #client
+    stdin_open: true
+    tty: true
