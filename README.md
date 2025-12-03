@@ -1,5 +1,210 @@
-# Java TCP programming - Practical content template
 
-This repository contains the template to the
-[Java TCP and UDP programming](https://github.com/heig-vd-dai-course/heig-vd-dai-course/tree/main/07.01-java-tcp-and-udp-programming-(1-of-2)/01-course-material)
-practical content.
+![Java](https://img.shields.io/badge/Java-007396?style=flat-square&logo=java&logoColor=white)
+![Maven](https://img.shields.io/badge/Maven-C71A36?style=flat-square&logo=apache-maven&logoColor=white)
+![Picocli](https://img.shields.io/badge/Picocli-4A90E2?style=flat-square&logo=java&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)
+![Java Sockets](https://img.shields.io/badge/Java%20Sockets-5382A1?style=flat-square&logo=java&logoColor=white)
+
+
+[![License](https://img.shields.io/github/license/heig-vd-dai-course/heig-vd-dai-course)](./LICENSE.md)
+[![Latest release](https://img.shields.io/github/v/release/robielTes/heig-vd-dai-practical-work-1-bolomey-reynard-tesfazghi?include_prereleases)](https://github.com/robielTes/heig-vd-dai-practical-work-1-bolomey-reynard-tesfazghi/releases)
+[![Issues](https://img.shields.io/github/issues/robielTes/heig-vd-dai-practical-work-1-bolomey-reynard-tesfazghi)](https://github.com/robielTes/heig-vd-dai-practical-work-1-bolomey-reynard-tesfazghi/issues)
+[![Pull requests](https://img.shields.io/github/issues-pr/robielTes/heig-vd-dai-practical-work-1-bolomey-reynard-tesfazghi)](https://github.com/robielTes/heig-vd-dai-practical-work-1-bolomey-reynard-tesfazghi/pulls)
+
+<a id="readme-top"></a>
+# The Mind
+
+This project implements a network-based digital recreation of the cooperative card game The Mind, where multiple players connect as separate processes and play cards in ascending order without communication. A custom application-level protocol defines how clients join, receive cards, play moves, and synchronize with the server. Communication is handled using TCP and/or UDP, enabling reliable game-state exchange across the network. The server manages the shared stack, validates plays, and enforces win/loss conditions. The system is packaged and deployed as a distributed application using Docker.
+
+For more detail [wiki](https://github.com/reynardpaul/heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi/wiki/The-Mind).
+
+## Table of Contents
+
+- [Requirements](#requirements)
+- [Folder structure](#folder-structure)
+- [Clone repository](#clone-repository)
+- [Compile CLI](#compile-cli)
+- [Run the CLI](#run-the-cli)
+- [Test](#test)
+- [Contributing](#contributing)
+- [Sources](#sources)
+- [License](#license)
+- [Contact](#contact)
+
+## Requirements
+
+- [Java java 21.0.8-tem](https://adoptium.net/fr/temurin/releases?version=21)
+- [Maven 3.9.11](https://maven.apache.org/)
+- [picocli 4.7.6](https://picocli.info/)
+- [Docker](https://www.docker.com)
+- [Docker Compose](https://docs.docker.com/compose/)
+
+## Folder structure
+
+See the [folder structure](docs/‎folder_structure.md) documentation. We base it on the [Java TCP programming - Practical content template + Docker](https://github.com/heig-vd-dai-course/heig-vd-dai-course-java-tcp-programming-practical-content-template).
+
+## Clone repository
+
+```
+   git clone https://github.com/reynardpaul/heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi
+   cd heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi
+```
+
+
+## Compile cli (Local)
+
+Compile the project locally using the maven wrapper.
+
+```shell
+./mvnw clean package
+```
+
+## Run the cli  (Local)
+
+Run the CLI without any arguments:
+
+```sh
+java -jar target/practical-work-2-bolomey-reynard-tesfazghi-1.0-SNAPSHOT.jar
+```
+
+```text
+Missing required subcommand
+Usage: practical-work-2-bolomey-reynard-tesfazghi-1.0-SNAPSHOT.jar [-hV]
+       [COMMAND]
+A small game to experiment with TCP.
+  -h, --help      Show this help message and exit.
+  -V, --version   Print version information and exit.
+Commands:
+  client  Start the client part of the network game.
+  server  Start the server part of the network game
+```
+
+Start the server:
+
+```sh
+java -jar target/practical-work-2-bolomey-reynard-tesfazghi-1.0-SNAPSHOT.jar server -p 6433
+```
+
+Start the client:
+
+```sh
+java -jar target/practical-work-2-bolomey-reynard-tesfazghi-1.0-SNAPSHOT.jar client -H localhost -p 6433
+```
+
+## Running with Docker Compose
+
+```
+server  → Start the server part of the network game. 
+client  → Start the client part of the network game.
+```
+### Building the image
+```
+ docker compose buil
+```
+Expected output:
+```
+....
+ [+] Building 2/2                                                                                                                                                                                          
+ ✔ heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi-client  Built                                                                                                                              0.0s 
+ ✔ heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi-server  Built 
+```
+### Start the Server (Docker)
+```
+  docker compose up server
+```
+Expected output:
+```
+....
+tcp-server  | Starting server...
+tcp-server  | [SERVER] Listening on port 6433 (commands)
+tcp-server  | [SERVER] Listening on port 6434 (broadcasts)
+```
+
+### Start a Client (Docker)
+Open a second terminal and run:
+```
+  docker compose run --rm client
+```
+Expected output:
+```
+=== Lobby ===
+Players connected: 1
+Players ready: 0 / 1
+
+You are Player1.
+
+Player list:
+ - Player1 (you)
+
+
+
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+[12:48:29] [INFO] Connected to server:6433
+[12:49:35] Usage: NAME, READY, UNREADY, PLAY, NEXT_ROUND, QUIT, HELP
+
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+> HELP
+```
+
+### Running Multiple Clients
+Just run the client command multiple times, each in its own terminal:
+```
+  docker compose run --rm client
+  docker compose run --rm client
+  docker compose run --rm client 
+  docker compose run --rm client
+  docker compose run --rm client
+```
+Each will appear in the lobby as a separate player.
+
+### Stop the Server 
+```
+docker compose down server
+```
+Each will appear in the lobby as a separate player.
+
+## Demo
+[![asciicast](./docs/The%20mind.png)](https://www.youtube.com/watch?v=r8ZZr05Lqew)
+
+## Contributing
+
+Contributions are what make the open source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
+
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+If you have interested in contributing , check the [Contributing guide](https://github.com/reynardpaul/heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi/wiki/Contribute) For more detail.
+
+Thank you in advance!
+
+## Sources
+[Useful sources & resources](https://github.com/reynardpaul/heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi/wiki/Source)
+
+## License
+
+Distributed under the Creative Commons. See [`LICENSE`](https://github.com/reynardpaul/heig-vd-dai-practical-work-2-bolomey-reynard-tesfazghi/blob/main/LICENSE.md) for more information.
+
+## Contact
+
+- [Bolomey Kym](https://github.com/k-bool)
+- [Paul Reynard](https://github.com/reynardpaul)
+- [Tesfazghi Robiel](https://github.com/R08137)
+
+  <p align="right"><a href="#readme-top">back to top</a></p>
