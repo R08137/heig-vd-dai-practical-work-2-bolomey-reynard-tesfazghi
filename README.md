@@ -177,6 +177,9 @@ docker compose down server
 ```
 Each will appear in the lobby as a separate player.
 
+## Demo
+[![asciicast](./docs/The%20mind.png)](https://www.youtube.com/watch?v=r8ZZr05Lqew)
+
 ## Contributing
 
 Contributions are what make the open source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
